@@ -29,9 +29,10 @@ enum SelfTest {
         if let screen = NSScreen.main, let window = Capturer.windows(on: screen).first {
             do {
                 let (image, scale) = try await Capturer.captureWindow(window.id)
-                dump(image, scale: scale, as: "window.png")
+                dump(Renderer.windowShadow(image, scale: scale), scale: scale, as: "window.png")
                 check("window \(window.id): \(image.width)×\(image.height) @\(Int(scale))x, has alpha",
-                      image.width >= Int(window.frame.width * scale) && image.alphaInfo != .none && image.alphaInfo != .noneSkipLast)
+                      image.width == Int(window.frame.width * scale) && image.height == Int(window.frame.height * scale)
+                      && image.alphaInfo != .none && image.alphaInfo != .noneSkipLast)
             } catch { check("window capture: \(error.localizedDescription)", false) }
         } else {
             print("  skip window capture (no windows on the main screen)")

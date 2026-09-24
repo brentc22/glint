@@ -132,6 +132,29 @@ T.test("crop and backdrop change the output size") {
     let framed = Renderer.render(white, annotations: [], backdrop: Backdrop(from: .red, to: .blue, padding: 40))!
     T.equal([framed.width, framed.height], [480, 280])
 }
+T.test("window shadow falls below the window, on a transparent margin") {
+    let window = Renderer.draw(size: CGSize(width: 200, height: 100)) { $0.setFillColor(.white); $0.fill(CGRect(x: 0, y: 0, width: 200, height: 100)) }!
+    let out = Renderer.windowShadow(window, scale: 1)
+    T.equal([out.width, out.height], [296, 196])
+    let top = Int(48 * 0.7), below = top + 100
+    T.equal(pixel(out, 1, 1)[3], 0, "corner stays transparent:")
+    T.equal(pixel(out, 148, top + 50)[0], 255, "window itself is untouched:")
+    let above = pixel(out, 148, top - 8)[3], under = pixel(out, 148, below + 8)[3]
+    T.expect(under > above, "shadow is heavier below (\(under)) than above (\(above))")
+    T.expect(pixel(out, 148, 195)[3] < 20, "and fades out before the bottom edge")
+}
+T.test("window shadow keeps Display P3") {
+    let p3 = CGContext(data: nil, width: 20, height: 20, bitsPerComponent: 8, bytesPerRow: 0,
+                       space: CGColorSpace(name: CGColorSpace.displayP3)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!.makeImage()!
+    T.equal(Renderer.windowShadow(p3, scale: 1).colorSpace?.name, CGColorSpace.displayP3)
+}
+T.test("a backdrop replaces the window shadow instead of stacking on it") {
+    let doc = Document(image: white, scale: 1, windowShadow: true)
+    T.equal(doc.render()!.width, 496)
+    var framed = doc
+    framed.apply { $0.backdrop = Backdrop(from: .red, to: .blue, padding: 40) }
+    T.equal(framed.render()!.width, 480)
+}
 T.test("arrow shape ends at its tip") {
     let path = Renderer.arrowPath(from: CGPoint(x: 0, y: 0), to: CGPoint(x: 200, y: 0), width: 6)
     T.expect(path.contains(CGPoint(x: 195, y: 0)), "near the tip is filled")

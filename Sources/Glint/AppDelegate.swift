@@ -301,7 +301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Task {
                 do {
                     let (image, scale) = try await Capturer.captureWindow(id)
-                    finish(Capture(image: image, scale: scale), screen: NSScreen.main)
+                    finish(Capture(window: image, scale: scale), screen: NSScreen.main)
                 } catch {
                     Toast.show(error.localizedDescription, symbol: "exclamationmark.triangle.fill")
                 }

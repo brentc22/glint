@@ -9,11 +9,20 @@ final class Capture: ObservableObject {
     @Published private(set) var image: CGImage
     let scale: CGFloat
     private(set) var file: URL?
+    /// A window capture without its shadow, so the editor can frame it with a backdrop
+    /// instead of stacking a second shadow. Gone once edited: the edit is the new original.
+    private(set) var bareWindow: CGImage?
 
     init(image: CGImage, scale: CGFloat, file: URL? = nil) {
         self.image = image
         self.scale = scale
         self.file = file
+    }
+
+    convenience init(window: CGImage, scale: CGFloat) {
+        guard Prefs.windowShadow else { self.init(image: window, scale: scale); return }
+        self.init(image: Renderer.windowShadow(window, scale: scale), scale: scale)
+        bareWindow = window
     }
 
     /// A screen recording: `file` is the MP4, `image` its first frame.
@@ -26,6 +35,7 @@ final class Capture: ObservableObject {
     /// Swaps in an edited version, rewriting the file and clipboard it already went to.
     func update(_ edited: CGImage) {
         image = edited
+        bareWindow = nil
         if let file { try? Self.encode(edited, scale: scale, as: file.pathExtension.lowercased() == "png" ? .png : .jpeg).write(to: file) }
         if Prefs.copyToClipboard { copy() }
     }
@@ -70,12 +80,20 @@ final class Capture: ObservableObject {
     /// for smaller files. Clipboard copies stay full resolution.
     static func encode(_ image: CGImage, scale: CGFloat, as type: UTType, allowDownscale: Bool = true) -> Data {
         if allowDownscale, Prefs.downscaleRetina, scale > 1, let small = Renderer.draw(size: CGSize(
-            width: (CGFloat(image.width) / scale).rounded(), height: (CGFloat(image.height) / scale).rounded()), {
+            width: (CGFloat(image.width) / scale).rounded(), height: (CGFloat(image.height) / scale).rounded()), space: image.colorSpace, {
                 $0.interpolationQuality = .high
                 Renderer.drawImage(image, in: CGRect(x: 0, y: 0, width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale), $0)
             }) {
             return encode(small, scale: 1, as: type, allowDownscale: false)
         }
+        var image = image
+        // JPEG has no alpha: a window's transparent corners and shadow margin would turn black.
+        if type == .jpeg, let flat = Renderer.draw(size: CGSize(width: image.width, height: image.height), space: image.colorSpace, {
+            let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+            $0.setFillColor(.white)
+            $0.fill(rect)
+            Renderer.drawImage(image, in: rect, $0)
+        }) { image = flat }
         let data = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil) else { return Data() }
         let dpi = 72 * scale

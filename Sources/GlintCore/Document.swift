@@ -13,13 +13,16 @@ public struct Document: Sendable {
     /// Screen scale the image was captured at (2 on Retina) — sizes stroke widths so a
     /// "medium" arrow looks the same on every display.
     public let scale: CGFloat
+    /// A bare window capture: the export gets the drop shadow back (unless a backdrop frames it).
+    public let windowShadow: Bool
     public private(set) var state = State()
     private var undoStack: [State] = []
     private var redoStack: [State] = []
 
-    public init(image: CGImage, scale: CGFloat = 2) {
+    public init(image: CGImage, scale: CGFloat = 2, windowShadow: Bool = false) {
         self.image = image
         self.scale = scale
+        self.windowShadow = windowShadow
     }
 
     public var canUndo: Bool { !undoStack.isEmpty }
@@ -71,6 +74,7 @@ public struct Document: Sendable {
     }
 
     public func render() -> CGImage? {
-        Renderer.render(image, annotations: state.annotations, crop: state.crop, backdrop: state.backdrop)
+        Renderer.render(image, annotations: state.annotations, crop: state.crop, backdrop: state.backdrop,
+                        windowShadow: windowShadow ? scale : nil)
     }
 }

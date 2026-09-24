@@ -8,16 +8,18 @@ import Foundation
 /// geometry, `CGImage.cropping(to:)` and the editor all share one coordinate space.
 public enum Renderer {
     public static func render(_ image: CGImage, annotations: [Annotation],
-                              crop: CGRect? = nil, backdrop: Backdrop? = nil) -> CGImage? {
+                              crop: CGRect? = nil, backdrop: Backdrop? = nil, windowShadow: CGFloat? = nil) -> CGImage? {
         let size = CGSize(width: image.width, height: image.height)
-        guard let flat = draw(size: size, { ctx in
+        guard let flat = draw(size: size, space: image.colorSpace, { ctx in
             drawImage(image, in: CGRect(origin: .zero, size: size), ctx)
             for annotation in annotations { draw(annotation, over: image, ctx) }
         }) else { return nil }
 
         let bounds = CGRect(origin: .zero, size: size)
         let cropped = crop.map { $0.integral.intersection(bounds) }.flatMap { $0.isEmpty ? nil : flat.cropping(to: $0) } ?? flat
-        return backdrop.map { framed(cropped, $0) } ?? cropped
+        // A backdrop brings its own shadow; a second one around the window would double up.
+        if let backdrop { return framed(cropped, backdrop) }
+        return windowShadow.map { self.windowShadow(cropped, scale: $0) } ?? cropped
     }
 
     /// Draws every annotation into an existing top-left-origin context — the editor
@@ -195,7 +197,7 @@ public enum Renderer {
         let inner = CGSize(width: image.width, height: image.height)
         let pad = b.padding * max(1, inner.width / 1600)  // keep the frame proportional on big shots
         let size = CGSize(width: inner.width + pad * 2, height: inner.height + pad * 2)
-        return draw(size: size) { ctx in
+        return draw(size: size, space: image.colorSpace) { ctx in
             let space = CGColorSpace(name: CGColorSpace.sRGB)!
             let gradient = CGGradient(colorsSpace: space, colors: [b.from.cgColor, b.to.cgColor] as CFArray, locations: [0, 1])!
             ctx.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
@@ -203,7 +205,7 @@ public enum Renderer {
             let rect = CGRect(x: pad, y: pad, width: inner.width, height: inner.height)
             let shape = CGPath(roundedRect: rect, cornerWidth: b.cornerRadius, cornerHeight: b.cornerRadius, transform: nil)
             ctx.saveGState()
-            ctx.setShadow(offset: CGSize(width: 0, height: pad * 0.2), blur: pad * 0.6, color: CGColor(gray: 0, alpha: 0.35))
+            ctx.setShadow(offset: CGSize(width: 0, height: -pad * 0.2), blur: pad * 0.6, color: CGColor(gray: 0, alpha: 0.35))
             ctx.addPath(shape)
             ctx.setFillColor(CGColor(gray: 0, alpha: 1))
             ctx.fillPath()
@@ -214,13 +216,29 @@ public enum Renderer {
         } ?? image
     }
 
+    /// A macOS-style drop shadow on a transparent margin, like the system's own window
+    /// screenshots. ScreenCaptureKit returns the bare window.
+    public static func windowShadow(_ image: CGImage, scale: CGFloat) -> CGImage {
+        let pad = 48 * scale
+        let size = CGSize(width: CGFloat(image.width) + pad * 2, height: CGFloat(image.height) + pad * 2)
+        return draw(size: size, space: image.colorSpace) { ctx in
+            ctx.setShadow(offset: CGSize(width: 0, height: -16 * scale), blur: 40 * scale, color: CGColor(gray: 0, alpha: 0.45))
+            drawImage(image, in: CGRect(x: pad, y: pad * 0.7, width: CGFloat(image.width), height: CGFloat(image.height)), ctx)
+        } ?? image
+    }
+
     // MARK: - Plumbing
 
-    /// A top-left-origin RGBA context of `size` pixels.
-    public static func draw(size: CGSize, _ body: (CGContext) -> Void) -> CGImage? {
-        guard let ctx = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8,
-                                  bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+    /// A top-left-origin RGBA context of `size` pixels, in `space` when it's RGB (so Display
+    /// P3 captures stay P3) and sRGB otherwise. Note: shadow offsets ignore the flip and stay
+    /// y-up, so a shadow that falls down needs a negative height.
+    public static func draw(size: CGSize, space: CGColorSpace? = nil, _ body: (CGContext) -> Void) -> CGImage? {
+        let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
+        func context(_ space: CGColorSpace) -> CGContext? {
+            CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0,
+                      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        }
+        guard let ctx = space.flatMap({ $0.model == .rgb ? context($0) : nil }) ?? context(srgb) else { return nil }
         ctx.translateBy(x: 0, y: size.height)
         ctx.scaleBy(x: 1, y: -1)
         body(ctx)

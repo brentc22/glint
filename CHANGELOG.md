@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.2 — 2026-09-24
+
+- The window shadow falls below the window, like macOS's own, instead of above it and
+  cut off at the top edge. Backdrop shadows had the same flip.
+- JPEG exports flatten transparency onto white: window captures no longer get a black frame.
+- A backdrop in the editor replaces the window shadow instead of stacking a second one.
+- Window captures keep their color space (Display P3 stays P3).
+- In area mode a click on a window crops it from the frozen screenshot, so it's exactly
+  what you saw, lands on the right display and counts as the previous area.
+- Window mode picks on press, so releasing on another display can't pick the wrong window.
+
 ## 0.2.1 — 2026-09-24
 
 - Window capture picks the window at the click position. Before, a click without a

@@ -59,7 +59,7 @@ final class EditorModel: ObservableObject {
 
     init(capture: Capture) {
         self.capture = capture
-        document = Document(image: capture.image, scale: capture.scale)
+        document = Document(image: capture.bareWindow ?? capture.image, scale: capture.scale, windowShadow: capture.bareWindow != nil)
     }
 
     /// Stroke width in image pixels — same visual weight on Retina and non-Retina shots.

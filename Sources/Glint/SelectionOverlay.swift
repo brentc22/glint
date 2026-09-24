@@ -142,9 +142,15 @@ private final class SelectionView: NSView {
         // The click itself says where the pointer is; hover tracking can lag or miss
         // (no move yet, or the first move on another display).
         track(event)
-        let p = convert(event.locationInWindow, from: nil)
-        dragStart = p
-        dragCurrent = p
+        // Window mode picks on press: the matching mouse-up goes to this view even when
+        // released on another display, where this screen's windows don't apply.
+        if overlay.mode == .window {
+            // Only a window counts; a click on the empty desktop does nothing.
+            if let window = hoveredWindow { overlay.finish(.window(window.id)) }
+            return
+        }
+        dragStart = mouse
+        dragCurrent = mouse
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -155,21 +161,16 @@ private final class SelectionView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        guard overlay.mode == .area, dragStart != nil else { return }
         defer { dragStart = nil; dragCurrent = nil }
-        track(event)
-        switch overlay.mode {
-        case .window:
-            // Only a window counts; a click on the empty desktop does nothing.
-            if let window = hoveredWindow { overlay.finish(.window(window.id)) }
-        case .area:
-            if let rect = selection, rect.width > 3, rect.height > 3 {
-                overlay.finish(.area(shot, rect))
-            } else if let window = hoveredWindow, overlay.allowsWindowMode {
-                // A click without a drag captures the window under the cursor, on its own.
-                overlay.finish(.window(window.id))
-            } else {
-                overlay.finish(.area(shot, bounds))
-            }
+        if let rect = selection, rect.width > 3, rect.height > 3 {
+            overlay.finish(.area(shot, rect))
+        } else if let window = hoveredWindow, overlay.allowsWindowMode {
+            // A click without a drag takes the window under the cursor — cropped from the
+            // frozen shot, so it's exactly what was on screen, like any other area.
+            overlay.finish(.area(shot, window.frame.intersection(bounds)))
+        } else {
+            overlay.finish(.area(shot, bounds))
         }
     }
 

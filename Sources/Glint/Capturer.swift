@@ -73,8 +73,8 @@ enum Capturer {
         return { try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) }
     }
 
-    /// One window on its own — even when other windows cover it — with its shadow and
-    /// transparent corners, like macOS's own window capture.
+    /// One window on its own — even when other windows cover it — with transparent
+    /// corners. Bare: the caller adds the shadow (`Renderer.windowShadow`).
     static func captureWindow(_ windowID: CGWindowID) async throws -> (CGImage, CGFloat) {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let window = content.windows.first(where: { $0.windowID == windowID }) else { throw CaptureError.windowGone }
@@ -87,18 +87,7 @@ enum Capturer {
         config.captureResolution = .best
         config.shouldBeOpaque = false
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-        return (Prefs.windowShadow ? withShadow(image, scale: scale) : image, scale)
-    }
-
-    /// ScreenCaptureKit returns the bare window; add a macOS-style drop shadow on a
-    /// transparent margin, like the system's own window screenshots.
-    private static func withShadow(_ image: CGImage, scale: CGFloat) -> CGImage {
-        let pad = 48 * scale
-        let size = CGSize(width: CGFloat(image.width) + pad * 2, height: CGFloat(image.height) + pad * 2)
-        return Renderer.draw(size: size) { ctx in
-            ctx.setShadow(offset: CGSize(width: 0, height: 16 * scale), blur: 40 * scale, color: CGColor(gray: 0, alpha: 0.45))
-            Renderer.drawImage(image, in: CGRect(x: pad, y: pad * 0.7, width: CGFloat(image.width), height: CGFloat(image.height)), ctx)
-        } ?? image
+        return (image, scale)
     }
 
     /// Normal app windows on `screen`, front to back. CGWindowList gives the z-order;
