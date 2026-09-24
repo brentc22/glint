@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>A free, open-source screenshot tool for macOS that blurs your secrets before you share them.</b><br>
-  Capture, annotate, pin, and copy text. Emails, IBANs, card numbers and API keys get pixelated in one click, on-device.
+  Capture, scroll-capture, record, annotate, pin and OCR. Emails, IBANs, card numbers and API keys get pixelated in one click, on-device.
 </p>
 
 <p align="center">
@@ -34,7 +34,15 @@ annotation: move it, delete it, or add more.
 - **Window**: the window on its own, even when something covers it, with its shadow and
   transparent corners. Press <kbd>Space</kbd> during an area capture to switch.
 - **Full screen** and **previous area** (the same rectangle again, for before/after shots).
-- **Text (OCR)**: drag over anything and the text lands on your clipboard.
+- **Scrolling capture**: select a region, scroll, press Done. Frames are stitched as you
+  go; sticky headers, footers and floating buttons are detected so they don't repeat, and
+  repetitive content (logs, tables, numbered lists) still lines up exactly.
+- **Screen recording** to MP4, with one-click **GIF** export.
+- **Text (OCR)**: drag over anything and the text lands on your clipboard. QR codes are
+  decoded, so you get the link rather than a picture of it.
+- **Self-timer** (3, 5 or 10 s) for hover states and open menus.
+- **Color picker**: press <kbd>C</kbd> while selecting to copy the hex color under the cursor.
+- Optionally include the mouse pointer.
 
 **After capture**
 - **Quick access overlay**: a thumbnail in the corner. Drag it into any app, or hover to
@@ -42,6 +50,7 @@ annotation: move it, delete it, or add more.
 - Copies to the clipboard and saves to `~/Pictures/Glint`. Both can be turned off.
 - **Pin to screen**: a floating, always-on-top copy. Drag to move, pinch to resize,
   scroll to fade, double-click to close.
+- Annotate an image from your clipboard, a file, or a recent capture.
 
 **Annotate**
 
@@ -60,6 +69,17 @@ annotation: move it, delete it, or add more.
 **Private by design**: no account, no network access, no analytics. OCR and redaction
 run on your Mac.
 
+**Light**: a 4 MB app using about 45 MB of memory and 0 % CPU when idle.
+
+**Settings you can find things in**: six tabs (General, Capture, Files, Shortcuts,
+Redaction, About). Every shortcut can be changed, files can be PNG or JPEG, Retina shots
+can be saved at 1× size, and you can add your own terms to redact: customer names,
+project codes, or any regular expression.
+
+<p align="center">
+  <img src="docs/settings.png" width="420" alt="Glint's Redaction settings: which kinds of data to look for, plus your own terms">
+</p>
+
 ## Shortcuts
 
 | Action | Shortcut |
@@ -68,10 +88,14 @@ run on your Mac.
 | Capture window | <kbd>⌃⇧5</kbd> |
 | Capture full screen | <kbd>⌃⇧3</kbd> |
 | Capture previous area | <kbd>⌃⇧6</kbd> |
-| Capture text (OCR) | <kbd>⌃⇧2</kbd> |
+| Scrolling capture (press again to finish) | <kbd>⌃⇧7</kbd> |
+| Capture text / QR code | <kbd>⌃⇧2</kbd> |
+| Record screen (press again to stop) | <kbd>⌃⇧8</kbd> |
+
+All of them can be changed in Settings → Shortcuts.
 
 While selecting: <kbd>Space</kbd> switches between area and window mode, <kbd>⏎</kbd> takes
-the whole screen, <kbd>Esc</kbd> cancels.
+the whole screen, <kbd>C</kbd> copies the color under the cursor, <kbd>Esc</kbd> cancels.
 
 In the editor: <kbd>⌘Z</kbd> / <kbd>⇧⌘Z</kbd> undo and redo, <kbd>⌘C</kbd> copies,
 <kbd>⌘S</kbd> saves, <kbd>⌘⏎</kbd> finishes, <kbd>⌫</kbd> deletes the selection.
@@ -89,11 +113,12 @@ CleanShot X is excellent and does more. Here's where each one stands today:
 | Annotate, numbered steps, pixelate, crop | ✓ | ✓ |
 | Background frames | ✓ | ✓ |
 | OCR, pin to screen | ✓ | ✓ |
-| **Automatic redaction of emails, IBANs, cards, keys, tokens** | ✓ | – |
-| Scrolling capture | – ([roadmap](#roadmap)) | ✓ |
-| Screen recording, GIF | – ([roadmap](#roadmap)) | ✓ |
+| Scrolling capture | ✓ | ✓ |
+| Screen recording, GIF | ✓ | ✓ |
+| Custom shortcuts, self-timer, color picker, QR | ✓ | ✓ |
+| **Automatic redaction of emails, IBANs, cards, keys, tokens + your own terms** | ✓ | – |
 | Cloud upload & share links | – | ✓ |
-| Custom shortcuts | – ([roadmap](#roadmap)) | ✓ |
+| Recording audio, webcam overlay | – | ✓ |
 
 ## Install
 
@@ -125,6 +150,8 @@ make run                       # build, install to /Applications, launch
 | Piece | How |
 | --- | --- |
 | Capture | ScreenCaptureKit (`SCScreenshotManager`), all displays at native resolution, before the overlay appears |
+| Scrolling capture | the region grabbed ~8×/s; per-row signatures, sticky bands found by comparing frames, offset from a distinctive anchor row, confirmed by rows matching *exactly* so repetitive content can't slip |
+| Recording | `SCStream` → `AVAssetWriter` (H.264), frames written as they arrive; GIF via `AVAssetImageGenerator` + ImageIO |
 | Window capture | `SCContentFilter(desktopIndependentWindow:)`, z-order from `CGWindowList` |
 | Shortcuts | Carbon `RegisterEventHotKey`, which needs no Accessibility permission |
 | OCR & redaction | Vision `VNRecognizeTextRequest` (language correction off, so keys stay intact), regex + IBAN mod-97 + Luhn, per-match boxes via `boundingBox(for:)` |
@@ -134,17 +161,23 @@ make run                       # build, install to /Applications, launch
 ## Development
 
 ```sh
-make test                                         # 22 tests: matcher, renderer, undo, OCR on a real image
+make test                                         # 30 unit tests: matcher, renderer, stitcher, undo, OCR, GIF
 make bundle                                       # Glint.app in the repo root
+Glint.app/Contents/MacOS/Glint --self-test        # every capture path for real, see below
 open Glint.app --args --edit docs/demo-input.png  # editor on the demo image, no permission needed
 ```
+
+`--self-test` captures every display, a window, a region 5× (timed), records 2 s of video
+and turns it into a GIF, scroll-captures a 120-line window of its own and checks that
+the result is exactly as tall as the document and that OCR reads it back. Started from a
+terminal it uses the terminal's Screen Recording permission.
 
 `docs/demo-input.png` is a made-up settings screen full of fake sensitive data
 (`swift scripts/make-demo-image.swift` regenerates it). The test suite checks that Redact
 finds exactly its six secrets and leaves the rest alone.
 
-Other launch arguments: `--quick-access <image>` and `--select-demo <image>` (the selection
-overlay over an image instead of your screen).
+Other launch arguments: `--quick-access <image>`, `--settings <tab>` and
+`--select-demo <image>` (the selection overlay over an image instead of your screen).
 
 ```
 Sources/
@@ -155,11 +188,10 @@ Sources/
 
 ## Roadmap
 
-- [ ] Scrolling capture
-- [ ] Screen recording to MP4 and GIF
-- [ ] Custom shortcuts
-- [ ] Self-timer, hide desktop icons while capturing
-- [ ] Redaction rules you can extend (your own patterns, names, customer IDs)
+- [ ] Audio (microphone / system) in recordings
+- [ ] Hide desktop icons while capturing
+- [ ] Measure tool (distances between UI elements)
+- [ ] Bring-your-own-bucket upload (S3 / R2) for share links, opt-in
 - [ ] Notarized builds and a Homebrew cask
 
 Ideas and PRs welcome. Open an issue first for anything big.

@@ -102,7 +102,7 @@ final class EditorModel: ObservableObject {
     func autoRedact() async -> Int {
         isRedacting = true
         defer { isRedacting = false }
-        let regions = await TextRecognizer.sensitiveRegions(in: document.image)
+        let regions = await TextRecognizer.sensitiveRegions(in: document.image, kinds: Prefs.redactKinds, customTerms: Prefs.customTerms)
         let existing = document.annotations.compactMap { if case let .pixelate(r) = $0.kind { r } else { nil } }
         let new = regions.filter { !existing.contains($0) }
         guard !new.isEmpty else { return 0 }

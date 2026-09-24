@@ -1,5 +1,4 @@
 import AppKit
-import Carbon.HIToolbox
 import GlintCore
 
 @MainActor
@@ -7,40 +6,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private let hotKeys = HotKeys()
     private var overlay: SelectionOverlay?
+    private var scrollSession: ScrollSession?
+    private var recording: RecordingSession?
     private lazy var quickAccess = QuickAccess(actions: CaptureActions(
         edit: { [weak self] in self?.edit($0) },
         pin: { [weak self] in self?.pin($0) },
         redact: { [weak self] in self?.redact($0) },
-        copyText: { capture in Task { await Self.copyText(of: capture.image) } }))
+        copyText: { capture in Task { await Self.copyText(of: capture.image) } },
+        makeGIF: { capture in Task { await Self.makeGIF(capture) } }))
     /// Last area selection, for "Capture Previous Area".
     private var lastArea: (display: CGDirectDisplayID, rect: CGRect)?
 
-    private struct Action {
-        let title: String
-        let symbol: String
-        let combo: HotKeys.Combo
-        let run: (AppDelegate) -> Void
+    func run(_ command: CaptureCommand) {
+        switch command {
+        case .area: select(.area)
+        case .window: select(.window)
+        case .fullScreen: captureFullScreen()
+        case .previousArea: capturePreviousArea()
+        case .scrolling: if let scrollSession { scrollSession.done() } else { select(.area, purpose: .scrolling) }
+        case .text: select(.area, purpose: .text)
+        case .recording: if let recording { recording.stop() } else { select(.area, purpose: .recording) }
+        }
     }
 
-    private let actions: [Action] = [
-        Action(title: "Capture Area", symbol: "rectangle.dashed", combo: .init(keyCode: kVK_ANSI_4, modifiers: [.control, .shift])) { $0.select(.area) },
-        Action(title: "Capture Window", symbol: "macwindow", combo: .init(keyCode: kVK_ANSI_5, modifiers: [.control, .shift])) { $0.select(.window) },
-        Action(title: "Capture Full Screen", symbol: "display", combo: .init(keyCode: kVK_ANSI_3, modifiers: [.control, .shift])) { $0.captureFullScreen() },
-        Action(title: "Capture Previous Area", symbol: "arrow.counterclockwise.circle", combo: .init(keyCode: kVK_ANSI_6, modifiers: [.control, .shift])) { $0.capturePreviousArea() },
-        Action(title: "Capture Text", symbol: "text.viewfinder", combo: .init(keyCode: kVK_ANSI_2, modifiers: [.control, .shift])) { $0.select(.area, forText: true) },
-    ]
+    /// (Re)binds every command's shortcut; the Shortcuts settings call this after a change.
+    /// Returns the commands whose shortcut another app already owns.
+    @discardableResult
+    func registerShortcuts() -> [CaptureCommand] {
+        hotKeys.unregisterAll()
+        return CaptureCommand.allCases.filter { command in
+            guard let combo = command.shortcut else { return false }
+            return !hotKeys.register(combo) { [weak self] in self?.run(command) }
+        }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Prefs.registerDefaults()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Glint")
+        statusItem.button?.image = Self.menuBarIcon
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
 
-        for action in actions {
-            hotKeys.register(action.combo) { [weak self] in if let self { action.run(self) } }
+        if CommandLine.arguments.contains("--self-test") {
+            Task { await SelfTest.run() }
+            return
         }
+        registerShortcuts()
 
         // `--edit <image>` and `--quick-access <image>` open an existing image straight
         // into the editor or the overlay — for development and README screenshots,
@@ -50,6 +62,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let i = args.firstIndex(of: flag), i + 1 < args.count,
                   let capture = Self.load(URL(fileURLWithPath: args[i + 1]), keepFile: false) else { continue }
             flag == "--edit" ? edit(capture) : quickAccess.show(capture, on: NSScreen.main)
+        }
+        // `--settings <tab>` opens the settings on that tab (0-based), for screenshots.
+        if let i = args.firstIndex(of: "--settings") {
+            let tab = i + 1 < args.count ? Int(args[i + 1]) : nil
+            SettingsWindow.show(tab: tab) { [weak self] in self?.registerShortcuts() ?? [] }
         }
         // `--select-demo <image>`: the selection overlay over that image instead of a real
         // screen grab — exercises the whole capture flow without the permission.
@@ -64,7 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let w = min(size.width * 0.8, size.height * 0.8 / aspect), h = w * aspect
                 Renderer.drawImage(demo.image, in: CGRect(x: (size.width - w) / 2, y: (size.height - h) / 2, width: w, height: h), ctx)
             }
-            if let backdrop { showOverlay([DisplayShot(screen: screen, image: backdrop)], mode: .area, forText: false) }
+            if let backdrop { showOverlay([DisplayShot(screen: screen, image: backdrop)], mode: .area, purpose: .capture) }
         }
     }
 
@@ -72,15 +89,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        for (i, action) in actions.enumerated() {
-            let item = NSMenuItem(title: action.title, action: #selector(runAction(_:)), keyEquivalent: action.combo.keyEquivalent)
-            item.keyEquivalentModifierMask = action.combo.modifiers
-            item.image = NSImage(systemSymbolName: action.symbol, accessibilityDescription: nil)
-            item.tag = i
+        for command in CaptureCommand.allCases {
+            let item = NSMenuItem(title: command.title, action: #selector(runCommand(_:)), keyEquivalent: command.shortcut?.keyEquivalent ?? "")
+            item.keyEquivalentModifierMask = command.shortcut?.modifiers ?? []
+            item.image = NSImage(systemSymbolName: command.symbol, accessibilityDescription: nil)
+            item.representedObject = command.rawValue
             item.target = self
             menu.addItem(item)
         }
+        let timer = NSMenuItem(title: "Capture with Timer", action: nil, keyEquivalent: "")
+        timer.image = NSImage(systemSymbolName: "timer", accessibilityDescription: nil)
+        timer.submenu = NSMenu()
+        for seconds in [3, 5, 10] {
+            let t = NSMenuItem(title: "\(seconds) seconds", action: #selector(captureWithTimer(_:)), keyEquivalent: "")
+            t.tag = seconds
+            t.target = self
+            timer.submenu?.addItem(t)
+        }
+        menu.addItem(timer)
         menu.addItem(.separator())
+        let clipboard = item("Annotate Clipboard Image", #selector(annotateClipboard), symbol: "doc.on.clipboard")
+        clipboard.isEnabled = NSImage(pasteboard: .general) != nil
+        menu.addItem(clipboard)
         menu.addItem(item("Open Image…", #selector(openImage), symbol: "photo"))
         let recent = NSMenuItem(title: "Recent", action: nil, keyEquivalent: "")
         recent.image = NSImage(systemSymbolName: "clock", accessibilityDescription: nil)
@@ -125,10 +155,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
     }
 
-    @objc private func runAction(_ sender: NSMenuItem) {
+    @objc private func runCommand(_ sender: NSMenuItem) {
+        guard let command = (sender.representedObject as? String).flatMap(CaptureCommand.init) else { return }
         // Let the menu close first, or it ends up in the frozen screenshot.
-        let action = actions[sender.tag]
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { action.run(self) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { self.run(command) }
+    }
+
+    /// Counts down, then freezes the screen — time to open a menu or hover a button.
+    @objc private func captureWithTimer(_ sender: NSMenuItem) {
+        let seconds = sender.tag
+        for i in 0..<seconds {
+            DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(i)) {
+                Toast.show("\(seconds - i)", symbol: "timer")
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(seconds)) { self.select(.area) }
+    }
+
+    @objc private func annotateClipboard() {
+        guard let image = NSImage(pasteboard: .general),
+              let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+        let scale = max(1, (CGFloat(cg.width) / max(image.size.width, 1)).rounded())
+        edit(Capture(image: cg, scale: scale))
     }
 
     @objc private func openImage() {
@@ -150,8 +198,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openSettings() {
-        SettingsWindow.show(shortcuts: actions.map { ($0.title, $0.combo.symbol) })
+        SettingsWindow.show(onShortcutsChanged: { [weak self] in self?.registerShortcuts() ?? [] })
     }
+
+    /// The logo's lens and glint as a template image, so the menu bar tints it.
+    private static let menuBarIcon: NSImage = {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+            let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 1.5, dy: 1.5))
+            ring.lineWidth = 1.6
+            NSColor.black.setStroke()
+            ring.stroke()
+            let c = NSPoint(x: rect.midX + 0.5, y: rect.midY + 0.5), r: CGFloat = 5, k: CGFloat = 0.9
+            let star = NSBezierPath()
+            star.move(to: NSPoint(x: c.x, y: c.y + r))
+            star.curve(to: NSPoint(x: c.x + r, y: c.y), controlPoint1: NSPoint(x: c.x + k, y: c.y + k), controlPoint2: NSPoint(x: c.x + k, y: c.y + k))
+            star.curve(to: NSPoint(x: c.x, y: c.y - r), controlPoint1: NSPoint(x: c.x + k, y: c.y - k), controlPoint2: NSPoint(x: c.x + k, y: c.y - k))
+            star.curve(to: NSPoint(x: c.x - r, y: c.y), controlPoint1: NSPoint(x: c.x - k, y: c.y - k), controlPoint2: NSPoint(x: c.x - k, y: c.y - k))
+            star.curve(to: NSPoint(x: c.x, y: c.y + r), controlPoint1: NSPoint(x: c.x - k, y: c.y + k), controlPoint2: NSPoint(x: c.x - k, y: c.y + k))
+            NSColor.black.setFill()
+            star.fill()
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Glint"
+        return image
+    }()
 
     /// Reads an image and recovers its Retina scale from the DPI Glint wrote (144 → 2×).
     private static func load(_ url: URL, keepFile: Bool) -> Capture? {
@@ -164,38 +235,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Capture flows
 
-    private func select(_ mode: SelectionOverlay.Mode, forText: Bool = false) {
-        guard overlay == nil, Permission.ensure() else { return }
+    /// What an area selection is for.
+    private enum Purpose {
+        case capture, text, scrolling, recording
+
+        var hint: String {
+            switch self {
+            case .capture: "Drag to capture"
+            case .text: "Drag over text or a QR code to copy it"
+            case .scrolling: "Select the part that scrolls"
+            case .recording: "Select what to record"
+            }
+        }
+    }
+
+    private func select(_ mode: SelectionOverlay.Mode, purpose: Purpose = .capture) {
+        guard overlay == nil, scrollSession == nil, recording == nil, Permission.ensure() else { return }
         Task {
             do {
-                showOverlay(try await Capturer.captureDisplays(), mode: mode, forText: forText)
+                showOverlay(try await Capturer.captureDisplays(), mode: mode, purpose: purpose)
             } catch {
                 Toast.show(error.localizedDescription, symbol: "exclamationmark.triangle.fill")
             }
         }
     }
 
-    private func showOverlay(_ shots: [DisplayShot], mode: SelectionOverlay.Mode, forText: Bool) {
-        let overlay = SelectionOverlay(shots: shots, mode: mode, allowsWindowMode: !forText,
-                                       hint: forText ? "Drag over text to copy it" : "Drag to capture") { result in
+    private func showOverlay(_ shots: [DisplayShot], mode: SelectionOverlay.Mode, purpose: Purpose) {
+        let overlay = SelectionOverlay(shots: shots, mode: mode, allowsWindowMode: purpose == .capture, hint: purpose.hint) { result in
             // The app delegate lives as long as the app; no retain cycle to break.
             self.overlay = nil
-            self.handle(result, forText: forText)
+            self.handle(result, purpose: purpose)
         }
         self.overlay = overlay
         overlay.show()
     }
 
-    private func handle(_ result: SelectionResult, forText: Bool) {
+    private func handle(_ result: SelectionResult, purpose: Purpose) {
         switch result {
         case let .area(shot, rect):
             let pixels = CGRect(x: rect.minX * shot.scale, y: rect.minY * shot.scale,
                                 width: rect.width * shot.scale, height: rect.height * shot.scale).integral
             guard let image = shot.image.cropping(to: pixels) else { return }
-            if let id = shot.screen.displayID { lastArea = (id, rect) }
-            if forText {
+            switch purpose {
+            case .text:
                 Task { await Self.copyText(of: image) }
-            } else {
+            case .scrolling:
+                let session = ScrollSession(screen: shot.screen, rect: rect) { [weak self] capture in
+                    self?.scrollSession = nil
+                    if let capture { self?.finish(capture, screen: shot.screen) }
+                }
+                scrollSession = session
+                session.start()
+            case .recording:
+                let session = RecordingSession(screen: shot.screen, rect: rect) { [weak self] capture in
+                    self?.recording = nil
+                    if let capture { self?.finishRecording(capture, screen: shot.screen) }
+                }
+                recording = session
+                session.start()
+            case .capture:
+                if let id = shot.screen.displayID { lastArea = (id, rect) }
                 finish(Capture(image: image, scale: shot.scale), screen: shot.screen)
             }
         case let .window(id):
@@ -228,7 +327,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Task {
             guard let shots = try? await Capturer.captureDisplays(),
                   let shot = shots.first(where: { $0.screen.displayID == last.display }) else { return }
-            handle(.area(shot, last.rect), forText: false)
+            handle(.area(shot, last.rect), purpose: .capture)
         }
     }
 
@@ -238,7 +337,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if Prefs.autoRedact { _ = await Self.redactInPlace(capture) }
             if Prefs.autoSave { _ = try? capture.save() }
             if Prefs.copyToClipboard { capture.copy() }
-            if Prefs.showQuickAccess { quickAccess.show(capture, on: screen) }
+            if Prefs.openEditor { edit(capture) } else if Prefs.showQuickAccess { quickAccess.show(capture, on: screen) }
+        }
+    }
+
+    /// Recordings skip what only makes sense for stills: redaction, the editor, image copy.
+    private func finishRecording(_ capture: Capture, screen: NSScreen?) {
+        if Prefs.copyToClipboard { capture.copy() }
+        quickAccess.show(capture, on: screen)
+    }
+
+    private static func makeGIF(_ capture: Capture) async {
+        guard let video = capture.file else { return }
+        Toast.show("Making GIF…", symbol: "photo.stack")
+        do {
+            let gif = try await GIFExport.make(from: video)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.writeObjects([gif as NSURL])
+            Toast.show("GIF saved and copied", symbol: "photo.stack.fill")
+        } catch {
+            Toast.show(error.localizedDescription, symbol: "exclamationmark.triangle.fill")
         }
     }
 
@@ -261,7 +379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private static func redactInPlace(_ capture: Capture) async -> Int {
-        let regions = await TextRecognizer.sensitiveRegions(in: capture.image)
+        let regions = await TextRecognizer.sensitiveRegions(in: capture.image, kinds: Prefs.redactKinds, customTerms: Prefs.customTerms)
         guard !regions.isEmpty,
               let redacted = Renderer.render(capture.image, annotations: regions.map { Annotation(.pixelate($0)) })
         else { return 0 }
@@ -269,7 +387,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return regions.count
     }
 
+    /// QR codes win over text: scanning one almost always means you want its link.
     private static func copyText(of image: CGImage) async {
+        if let code = await TextRecognizer.barcodes(in: image).first {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(code, forType: .string)
+            return Toast.show(code.count > 40 ? "Copied QR code" : "Copied \(code)", symbol: "qrcode")
+        }
         let text = await TextRecognizer.text(in: image)
         guard !text.isEmpty else { return Toast.show("No text found", symbol: "text.magnifyingglass") }
         NSPasteboard.general.clearContents()

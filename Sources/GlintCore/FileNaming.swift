@@ -3,11 +3,13 @@ import Foundation
 public enum FileNaming {
     /// `Glint 2026-09-24 at 15.04.12.png` — sorts chronologically in Finder, and
     /// avoids `:`, which Finder shows as `/`.
-    public static func name(for date: Date = Date(), ext: String = "png") -> String {
+    public static func name(for date: Date = Date(), prefix: String = "Glint", ext: String = "png") -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        return "Glint \(f.string(from: date)).\(ext)"
+        let clean = prefix.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+            .trimmingCharacters(in: .whitespaces)
+        return (clean.isEmpty ? "" : clean + " ") + "\(f.string(from: date)).\(ext)"
     }
 
     /// `name`, or `name 2`, `name 3`… when a file with that name already exists.

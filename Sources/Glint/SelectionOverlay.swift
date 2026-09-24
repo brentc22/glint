@@ -164,7 +164,16 @@ private final class SelectionView: NSView {
         case 53: overlay.finish(.cancelled)                 // Esc
         case 49: overlay.toggleMode()                       // Space
         case 36, 76: overlay.finish(.area(shot, bounds))    // Return: whole screen
-        default: super.keyDown(with: event)
+        default:
+            if event.charactersIgnoringModifiers?.lowercased() == "c", let mouse,
+               let hex = hexColor(at: CGPoint(x: (mouse.x * shot.scale).rounded(.down), y: (mouse.y * shot.scale).rounded(.down))) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(hex, forType: .string)
+                overlay.finish(.cancelled)
+                Toast.show("Copied \(hex)", symbol: "eyedropper")
+            } else {
+                super.keyDown(with: event)
+            }
         }
     }
 
@@ -267,7 +276,7 @@ private final class SelectionView: NSView {
     private func hintBar() {
         let text = overlay.mode == .window
             ? "Click a window  ·  Space: select area  ·  Esc: cancel"
-            : overlay.hint + (overlay.allowsWindowMode ? "  ·  Space: pick window" : "") + "  ·  ⏎ full screen  ·  Esc: cancel"
+            : overlay.hint + (overlay.allowsWindowMode ? "  ·  Space: pick window" : "") + "  ·  C: copy color  ·  ⏎ full screen  ·  Esc: cancel"
         pill(text, at: CGPoint(x: bounds.midX, y: bounds.minY + 60), size: 13)
     }
 

@@ -6,7 +6,20 @@ import Foundation
 /// timestamp that happens to look similar doesn't get blurred.
 public enum SensitiveMatcher {
     public enum Kind: String, CaseIterable, Sendable {
-        case email, phone, iban, card, apiKey, jwt, ipAddress
+        case email, phone, iban, card, apiKey, jwt, ipAddress, custom
+
+        public var title: String {
+            switch self {
+            case .email: "Email addresses"
+            case .phone: "Phone numbers"
+            case .iban: "IBANs"
+            case .card: "Card numbers"
+            case .apiKey: "API keys & secrets"
+            case .jwt: "Tokens (JWT)"
+            case .ipAddress: "IP addresses"
+            case .custom: "Your own terms"
+            }
+        }
     }
 
     public struct Match: Equatable, Sendable {
@@ -24,10 +37,13 @@ public enum SensitiveMatcher {
         (.ipAddress, #"\b(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}\b"#),
     ] as [(Kind, String)]).map { ($0.0, try! NSRegularExpression(pattern: $0.1)) }
 
-    public static func matches(in text: String, kinds: Set<Kind> = Set(Kind.allCases)) -> [Match] {
+    /// - Parameter customTerms: extra things to hide — names, customer IDs, project codes.
+    ///   Plain terms match case-insensitively; `/…/` is a regular expression.
+    public static func matches(in text: String, kinds: Set<Kind> = Set(Kind.allCases), customTerms: [String] = []) -> [Match] {
         var found: [Match] = []
         let full = NSRange(text.startIndex..., in: text)
-        for (kind, regex) in patterns where kinds.contains(kind) {
+        let custom = kinds.contains(.custom) ? customTerms.compactMap(customPattern).map { (Kind.custom, $0) } : []
+        for (kind, regex) in custom + patterns where kinds.contains(kind) {
             for result in regex.matches(in: text, range: full) {
                 guard let range = Range(result.range, in: text) else { continue }
                 // Earlier (more specific) patterns win: a card number inside an IBAN,
@@ -38,6 +54,15 @@ public enum SensitiveMatcher {
             }
         }
         return found.sorted { $0.range.lowerBound < $1.range.lowerBound }
+    }
+
+    static func customPattern(_ term: String) -> NSRegularExpression? {
+        let t = term.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return nil }
+        if t.count > 2, t.hasPrefix("/"), t.hasSuffix("/") {
+            return try? NSRegularExpression(pattern: String(t.dropFirst().dropLast()))
+        }
+        return try? NSRegularExpression(pattern: NSRegularExpression.escapedPattern(for: t), options: .caseInsensitive)
     }
 
     static func isValid(_ kind: Kind, _ value: String) -> Bool {

@@ -1,36 +1,54 @@
 import Foundation
+import GlintCore
 
-/// Settings live in UserDefaults under these keys; the settings window binds to the
-/// same keys with `@AppStorage`, so there is one source of truth.
+/// All settings, in UserDefaults. The settings window writes through `SettingsModel`;
+/// everything else reads here.
 enum Prefs {
-    enum Key {
-        static let saveFolder = "saveFolder"
-        static let autoSave = "autoSave"
-        static let copyToClipboard = "copyToClipboard"
-        static let showQuickAccess = "showQuickAccess"
-        static let playSound = "playSound"
-        static let autoRedact = "autoRedact"
-    }
-
-    static func registerDefaults() {
-        UserDefaults.standard.register(defaults: [
-            Key.saveFolder: defaultFolder.path,
-            Key.autoSave: true,
-            Key.copyToClipboard: true,
-            Key.showQuickAccess: true,
-            Key.playSound: true,
-            Key.autoRedact: false,
-        ])
-    }
+    enum Corner: String, CaseIterable { case left, right }
+    enum Format: String, CaseIterable { case png, jpeg }
 
     static let defaultFolder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures/Glint")
 
-    static var saveFolder: URL {
-        URL(fileURLWithPath: UserDefaults.standard.string(forKey: Key.saveFolder) ?? defaultFolder.path)
+    static func registerDefaults() {
+        UserDefaults.standard.register(defaults: [
+            "saveFolder": defaultFolder.path,
+            "autoSave": true,
+            "copyToClipboard": true,
+            "showQuickAccess": true,
+            "quickAccessCorner": Corner.left.rawValue,
+            "quickAccessSeconds": 8,
+            "openEditor": false,
+            "playSound": true,
+            "showCursor": false,
+            "format": Format.png.rawValue,
+            "downscaleRetina": false,
+            "filenamePrefix": "Glint",
+            "autoRedact": false,
+            "redactKinds": SensitiveMatcher.Kind.allCases.map(\.rawValue),
+            "customTerms": "",
+        ])
     }
-    static var autoSave: Bool { UserDefaults.standard.bool(forKey: Key.autoSave) }
-    static var copyToClipboard: Bool { UserDefaults.standard.bool(forKey: Key.copyToClipboard) }
-    static var showQuickAccess: Bool { UserDefaults.standard.bool(forKey: Key.showQuickAccess) }
-    static var playSound: Bool { UserDefaults.standard.bool(forKey: Key.playSound) }
-    static var autoRedact: Bool { UserDefaults.standard.bool(forKey: Key.autoRedact) }
+
+    private static var d: UserDefaults { .standard }
+
+    static var saveFolder: URL { URL(fileURLWithPath: d.string(forKey: "saveFolder") ?? defaultFolder.path) }
+    static var autoSave: Bool { d.bool(forKey: "autoSave") }
+    static var copyToClipboard: Bool { d.bool(forKey: "copyToClipboard") }
+    static var showQuickAccess: Bool { d.bool(forKey: "showQuickAccess") }
+    static var quickAccessCorner: Corner { Corner(rawValue: d.string(forKey: "quickAccessCorner") ?? "") ?? .left }
+    /// 0 = stay until closed.
+    static var quickAccessSeconds: Int { d.integer(forKey: "quickAccessSeconds") }
+    static var openEditor: Bool { d.bool(forKey: "openEditor") }
+    static var playSound: Bool { d.bool(forKey: "playSound") }
+    static var showCursor: Bool { d.bool(forKey: "showCursor") }
+    static var format: Format { Format(rawValue: d.string(forKey: "format") ?? "") ?? .png }
+    static var downscaleRetina: Bool { d.bool(forKey: "downscaleRetina") }
+    static var filenamePrefix: String { d.string(forKey: "filenamePrefix") ?? "Glint" }
+    static var autoRedact: Bool { d.bool(forKey: "autoRedact") }
+    static var redactKinds: Set<SensitiveMatcher.Kind> {
+        Set((d.stringArray(forKey: "redactKinds") ?? []).compactMap(SensitiveMatcher.Kind.init))
+    }
+    static var customTerms: [String] {
+        (d.string(forKey: "customTerms") ?? "").split(whereSeparator: \.isNewline).map(String.init)
+    }
 }

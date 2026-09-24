@@ -17,9 +17,13 @@ struct PickableWindow {
 }
 
 enum CaptureError: LocalizedError {
-    case permissionDenied, windowGone
+    case permissionDenied, windowGone, nothingRecorded
     var errorDescription: String? {
-        self == .permissionDenied ? "Glint needs Screen Recording permission." : "That window closed before it could be captured."
+        switch self {
+        case .permissionDenied: "Glint needs Screen Recording permission."
+        case .windowGone: "That window closed before it could be captured."
+        case .nothingRecorded: "Nothing was recorded."
+        }
     }
 }
 
@@ -38,13 +42,34 @@ enum Capturer {
             let config = SCStreamConfiguration()
             config.width = Int(CGFloat(display.width) * screen.backingScaleFactor)
             config.height = Int(CGFloat(display.height) * screen.backingScaleFactor)
-            config.showsCursor = false
+            config.showsCursor = Prefs.showCursor
             config.captureResolution = .best
             let filter = SCContentFilter(display: display, excludingWindows: own)
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
             shots.append(DisplayShot(screen: screen, image: image))
         }
         return shots
+    }
+
+    /// A reusable capture of one rectangle of one screen — for scrolling capture, which
+    /// grabs the same region many times a second. Set up once: looking up shareable
+    /// content costs more than the capture itself. Glint's own windows are excluded,
+    /// so create any on-screen UI before calling this.
+    static func regionGrabber(screen: NSScreen, rect: CGRect, includeOwnWindows: Bool = false) async throws -> () async throws -> CGImage {
+        guard hasPermission else { throw CaptureError.permissionDenied }
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        guard let id = screen.displayID, let display = content.displays.first(where: { $0.displayID == id }) else {
+            throw CaptureError.permissionDenied
+        }
+        let own = includeOwnWindows ? [] : content.windows.filter { $0.owningApplication?.processID == getpid() }
+        let filter = SCContentFilter(display: display, excludingWindows: own)
+        let config = SCStreamConfiguration()
+        config.sourceRect = rect
+        config.width = Int(rect.width * screen.backingScaleFactor)
+        config.height = Int(rect.height * screen.backingScaleFactor)
+        config.showsCursor = false
+        config.captureResolution = .best
+        return { try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) }
     }
 
     /// One window on its own — even when other windows cover it — with its shadow and

@@ -7,6 +7,7 @@ struct CaptureActions {
     let pin: (Capture) -> Void
     let redact: (Capture) -> Void
     let copyText: (Capture) -> Void
+    let makeGIF: (Capture) -> Void
 }
 
 /// The floating thumbnails in the corner after a capture. Hover for actions, drag the
@@ -47,13 +48,14 @@ final class QuickAccess {
         layout(on: panel.screen)
     }
 
-    /// Stacks cards upward from the bottom-left corner, newest lowest.
+    /// Stacks cards upward from the chosen bottom corner, newest lowest.
     private func layout(on screen: NSScreen?) {
         let area = (screen ?? NSScreen.main)?.visibleFrame ?? .zero
+        let x = Prefs.quickAccessCorner == .left ? area.minX + 20 : area.maxX - 20 - Self.width
         var y = area.minY + 20
         for card in cards.reversed() {
             let h = card.panel.frame.height
-            card.panel.setFrame(CGRect(x: area.minX + 20, y: y, width: Self.width, height: h), display: true, animate: true)
+            card.panel.setFrame(CGRect(x: x, y: y, width: Self.width, height: h), display: true, animate: true)
             y += h + Self.gap
         }
     }
@@ -81,7 +83,32 @@ private struct QuickAccessCard: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
 
-            if state.hovering {
+            if capture.isVideo, !state.hovering {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 34))
+                    .foregroundStyle(.white, .black.opacity(0.4))
+            }
+
+            if state.hovering, capture.isVideo, let file = capture.file {
+                Color.black.opacity(0.45)
+                VStack(spacing: 8) {
+                    pill("Copy", "doc.on.doc") { capture.copy(); flash() }
+                    pill("Save as GIF", "photo.stack") { actions.makeGIF(capture) }
+                }
+                VStack {
+                    HStack {
+                        corner("xmark", help: "Close") { close() }
+                        Spacer()
+                        corner("play.fill", help: "Play") { NSWorkspace.shared.open(file) }
+                    }
+                    Spacer()
+                    HStack {
+                        corner("folder", help: "Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+                        Spacer()
+                    }
+                }
+                .padding(8)
+            } else if state.hovering {
                 Color.black.opacity(0.45)
                 VStack(spacing: 8) {
                     pill("Copy", "doc.on.doc") { capture.copy(); flash() }
@@ -110,7 +137,9 @@ private struct QuickAccessCard: View {
             withAnimation(.easeOut(duration: 0.12)) { state.hovering = inside }
             inside ? state.dismissTask?.cancel() : scheduleDismiss()
         }
-        .onTapGesture(count: 2) { actions.edit(capture); close() }
+        .onTapGesture(count: 2) {
+            if capture.isVideo, let file = capture.file { NSWorkspace.shared.open(file) } else { actions.edit(capture); close() }
+        }
         .onDrag {
             if let file = capture.file, let provider = NSItemProvider(contentsOf: file) { return provider }
             return NSItemProvider(object: capture.nsImage)
@@ -120,8 +149,10 @@ private struct QuickAccessCard: View {
 
     private func scheduleDismiss() {
         state.dismissTask?.cancel()
+        let seconds = Prefs.quickAccessSeconds
+        guard seconds > 0 else { return }
         state.dismissTask = Task {
-            try? await Task.sleep(for: .seconds(8))
+            try? await Task.sleep(for: .seconds(seconds))
             if !Task.isCancelled { close() }
         }
     }
