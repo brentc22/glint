@@ -15,7 +15,6 @@ final class Recorder: NSObject, SCStreamOutput, @unchecked Sendable {
 
     @MainActor
     init(screen: NSScreen, rect: CGRect, to url: URL) async throws {
-        guard Capturer.hasPermission else { throw CaptureError.permissionDenied }
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let id = screen.displayID, let display = content.displays.first(where: { $0.displayID == id }) else {
             throw CaptureError.permissionDenied

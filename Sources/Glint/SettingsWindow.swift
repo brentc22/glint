@@ -22,7 +22,7 @@ final class SettingsModel: ObservableObject {
         }
     }
     @Published var playSound = Prefs.playSound { didSet { d.set(playSound, forKey: "playSound") } }
-    @Published var hasPermission = Capturer.hasPermission
+    @Published var hasPermission = CGPreflightScreenCaptureAccess()
 
     // After capture
     @Published var showQuickAccess = Prefs.showQuickAccess { didSet { d.set(showQuickAccess, forKey: "showQuickAccess") } }
@@ -145,6 +145,7 @@ private struct GeneralPane: View {
             }
         }
         .formStyle(.grouped)
+        .task { model.hasPermission = await Capturer.hasPermission() }
     }
 }
 

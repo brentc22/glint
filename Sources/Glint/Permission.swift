@@ -4,8 +4,8 @@ import AppKit
 /// once; after that we have to send people to System Settings ourselves.
 @MainActor
 enum Permission {
-    static func ensure() -> Bool {
-        if Capturer.hasPermission { return true }
+    static func ensure() async -> Bool {
+        if await Capturer.hasPermission() { return true }
         if CGRequestScreenCaptureAccess() { return true }
         let alert = NSAlert()
         alert.messageText = "Glint needs Screen Recording permission"

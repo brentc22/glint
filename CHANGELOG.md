@@ -10,6 +10,8 @@
 - In area mode a click on a window crops it from the frozen screenshot, so it's exactly
   what you saw, lands on the right display and counts as the previous area.
 - Window mode picks on press, so releasing on another display can't pick the wrong window.
+- A Screen Recording grant that lands while Glint is running now counts right away. Before,
+  the shortcut kept opening System Settings until Glint was restarted.
 
 ## 0.2.1 — 2026-09-24
 

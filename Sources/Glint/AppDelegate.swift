@@ -250,8 +250,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func select(_ mode: SelectionOverlay.Mode, purpose: Purpose = .capture) {
-        guard overlay == nil, scrollSession == nil, recording == nil, Permission.ensure() else { return }
+        guard overlay == nil, scrollSession == nil, recording == nil else { return }
         Task {
+            guard await Permission.ensure(), overlay == nil else { return }
             do {
                 showOverlay(try await Capturer.captureDisplays(), mode: mode, purpose: purpose)
             } catch {
@@ -312,9 +313,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func captureFullScreen() {
-        guard Permission.ensure() else { return }
         Task {
-            guard let shots = try? await Capturer.captureDisplays() else { return }
+            guard await Permission.ensure(), let shots = try? await Capturer.captureDisplays() else { return }
             let mouse = NSEvent.mouseLocation
             guard let shot = shots.first(where: { $0.screen.frame.contains(mouse) }) ?? shots.first else { return }
             finish(Capture(image: shot.image, scale: shot.scale), screen: shot.screen)
@@ -323,9 +323,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func capturePreviousArea() {
         guard let last = lastArea else { return select(.area) }
-        guard Permission.ensure() else { return }
         Task {
-            guard let shots = try? await Capturer.captureDisplays(),
+            guard await Permission.ensure(), let shots = try? await Capturer.captureDisplays(),
                   let shot = shots.first(where: { $0.screen.displayID == last.display }) else { return }
             handle(.area(shot, last.rect), purpose: .capture)
         }

@@ -30,11 +30,17 @@ enum CaptureError: LocalizedError {
 
 @MainActor
 enum Capturer {
-    static var hasPermission: Bool { CGPreflightScreenCaptureAccess() }
+    /// `CGPreflightScreenCaptureAccess` answers once per process: a grant that lands after
+    /// launch (or after `make install` swaps the binary) stays "no" until a restart. So on
+    /// "no", ask ScreenCaptureKit, which checks live.
+    static func hasPermission() async -> Bool {
+        if CGPreflightScreenCaptureAccess() { return true }
+        return (try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)) != nil
+    }
 
     /// Every display, captured at full Retina resolution without the cursor.
     static func captureDisplays() async throws -> [DisplayShot] {
-        guard hasPermission else { throw CaptureError.permissionDenied }
+        guard await hasPermission() else { throw CaptureError.permissionDenied }
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         let own = content.windows.filter { $0.owningApplication?.processID == getpid() }
         var shots: [DisplayShot] = []
@@ -57,7 +63,6 @@ enum Capturer {
     /// content costs more than the capture itself. Glint's own windows are excluded,
     /// so create any on-screen UI before calling this.
     static func regionGrabber(screen: NSScreen, rect: CGRect, includeOwnWindows: Bool = false) async throws -> () async throws -> CGImage {
-        guard hasPermission else { throw CaptureError.permissionDenied }
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let id = screen.displayID, let display = content.displays.first(where: { $0.displayID == id }) else {
             throw CaptureError.permissionDenied

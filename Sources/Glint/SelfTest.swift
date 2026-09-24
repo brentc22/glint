@@ -14,7 +14,7 @@ enum SelfTest {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        check("Screen Recording permission", Capturer.hasPermission)
+        check("Screen Recording permission", await Capturer.hasPermission())
 
         // 1. Every display, at its own resolution — mixed Retina / non-Retina setups included.
         let shots = (try? await Capturer.captureDisplays()) ?? []
