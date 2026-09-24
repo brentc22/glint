@@ -32,6 +32,7 @@ final class SettingsModel: ObservableObject {
     @Published var copyToClipboard = Prefs.copyToClipboard { didSet { d.set(copyToClipboard, forKey: "copyToClipboard") } }
     @Published var autoSave = Prefs.autoSave { didSet { d.set(autoSave, forKey: "autoSave") } }
     @Published var showCursor = Prefs.showCursor { didSet { d.set(showCursor, forKey: "showCursor") } }
+    @Published var windowShadow = Prefs.windowShadow { didSet { d.set(windowShadow, forKey: "windowShadow") } }
 
     // Files
     @Published var saveFolder = Prefs.saveFolder
@@ -172,6 +173,7 @@ private struct CapturePane: View {
             }
             Section("Screenshots") {
                 Toggle("Include the mouse pointer", isOn: $model.showCursor)
+                Toggle("Add a shadow to window captures", isOn: $model.windowShadow)
             }
         }
         .formStyle(.grouped)

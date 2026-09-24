@@ -1,4 +1,5 @@
 import AppKit
+import GlintCore
 @preconcurrency import ScreenCaptureKit  // SCShareableContent isn't Sendable in the macOS 15 SDK
 
 /// A frozen image of one display, taken before the selection overlay appears — so what
@@ -84,9 +85,20 @@ enum Capturer {
         config.height = Int(filter.contentRect.height * scale)
         config.showsCursor = false
         config.captureResolution = .best
-        config.ignoreShadowsSingleWindow = false
         config.shouldBeOpaque = false
-        return (try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config), scale)
+        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+        return (Prefs.windowShadow ? withShadow(image, scale: scale) : image, scale)
+    }
+
+    /// ScreenCaptureKit returns the bare window; add a macOS-style drop shadow on a
+    /// transparent margin, like the system's own window screenshots.
+    private static func withShadow(_ image: CGImage, scale: CGFloat) -> CGImage {
+        let pad = 48 * scale
+        let size = CGSize(width: CGFloat(image.width) + pad * 2, height: CGFloat(image.height) + pad * 2)
+        return Renderer.draw(size: size) { ctx in
+            ctx.setShadow(offset: CGSize(width: 0, height: 16 * scale), blur: 40 * scale, color: CGColor(gray: 0, alpha: 0.45))
+            Renderer.drawImage(image, in: CGRect(x: pad, y: pad * 0.7, width: CGFloat(image.width), height: CGFloat(image.height)), ctx)
+        } ?? image
     }
 
     /// Normal app windows on `screen`, front to back. CGWindowList gives the z-order;
@@ -98,6 +110,7 @@ enum Capturer {
         return list.compactMap { info in
             guard (info[kCGWindowLayer as String] as? Int) == 0,
                   (info[kCGWindowOwnerPID as String] as? Int32) != getpid(),
+                  (info[kCGWindowAlpha as String] as? Double ?? 1) > 0.05,  // invisible helper windows
                   let id = info[kCGWindowNumber as String] as? CGWindowID,
                   let dict = info[kCGWindowBounds as String] as? NSDictionary,
                   let bounds = CGRect(dictionaryRepresentation: dict),

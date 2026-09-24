@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 — 2026-09-24
+
+- Window capture picks the window at the click position. Before, a click without a
+  prior mouse move (or on another display) fell back to the whole screen.
+- The window under the cursor is highlighted as soon as the overlay opens.
+- In window mode a click on the empty desktop does nothing instead of capturing it all.
+- Invisible helper windows are no longer pickable.
+- Window captures get a macOS-style shadow (Settings → Capture to turn it off).
+
 ## 0.2.0 — 2026-09-24
 
 Driven by what people ask for most in screenshot tools (GitHub issues, reviews, Reddit).

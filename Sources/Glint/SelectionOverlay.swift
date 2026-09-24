@@ -57,6 +57,8 @@ final class SelectionOverlay {
             if panel.frame.contains(mouse) {
                 panel.makeKey()
                 panel.makeFirstResponder(view)
+                // Highlight what's under the cursor now, not after the first mouse move.
+                view.track(windowPoint: panel.convertPoint(fromScreen: mouse))
             }
         }
         NSCursor.crosshair.set()
@@ -129,12 +131,17 @@ private final class SelectionView: NSView {
     override func mouseExited(with event: NSEvent) { mouse = nil; needsDisplay = true }
     override func mouseEntered(with event: NSEvent) { window?.makeKey(); window?.makeFirstResponder(self); track(event) }
 
-    private func track(_ event: NSEvent) {
-        mouse = convert(event.locationInWindow, from: nil)
+    private func track(_ event: NSEvent) { track(windowPoint: event.locationInWindow) }
+
+    func track(windowPoint: CGPoint) {
+        mouse = convert(windowPoint, from: nil)
         needsDisplay = true
     }
 
     override func mouseDown(with event: NSEvent) {
+        // The click itself says where the pointer is; hover tracking can lag or miss
+        // (no move yet, or the first move on another display).
+        track(event)
         let p = convert(event.locationInWindow, from: nil)
         dragStart = p
         dragCurrent = p
@@ -149,13 +156,20 @@ private final class SelectionView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         defer { dragStart = nil; dragCurrent = nil }
-        if overlay.mode == .area, let rect = selection, rect.width > 3, rect.height > 3 {
-            overlay.finish(.area(shot, rect))
-        } else if let window = hoveredWindow, overlay.allowsWindowMode {
-            // A click without a drag picks the window under the cursor.
-            overlay.finish(overlay.mode == .window ? .window(window.id) : .area(shot, window.frame.intersection(bounds)))
-        } else {
-            overlay.finish(.area(shot, bounds))
+        track(event)
+        switch overlay.mode {
+        case .window:
+            // Only a window counts; a click on the empty desktop does nothing.
+            if let window = hoveredWindow { overlay.finish(.window(window.id)) }
+        case .area:
+            if let rect = selection, rect.width > 3, rect.height > 3 {
+                overlay.finish(.area(shot, rect))
+            } else if let window = hoveredWindow, overlay.allowsWindowMode {
+                // A click without a drag captures the window under the cursor, on its own.
+                overlay.finish(.window(window.id))
+            } else {
+                overlay.finish(.area(shot, bounds))
+            }
         }
     }
 

@@ -29,8 +29,9 @@ enum SelfTest {
         if let screen = NSScreen.main, let window = Capturer.windows(on: screen).first {
             do {
                 let (image, scale) = try await Capturer.captureWindow(window.id)
+                dump(image, scale: scale, as: "window.png")
                 check("window \(window.id): \(image.width)×\(image.height) @\(Int(scale))x, has alpha",
-                      image.width >= Int(window.frame.width) && image.alphaInfo != .none && image.alphaInfo != .noneSkipLast)
+                      image.width >= Int(window.frame.width * scale) && image.alphaInfo != .none && image.alphaInfo != .noneSkipLast)
             } catch { check("window capture: \(error.localizedDescription)", false) }
         } else {
             print("  skip window capture (no windows on the main screen)")
@@ -115,6 +116,7 @@ enum SelfTest {
                 try? await Task.sleep(for: .milliseconds(120))
             }
             guard let image = stitcher.image() else { return check("scrolling capture: no image", false) }
+            dump(image, scale: scale, as: "scrolling.png")
             let expected = Int(documentHeight * scale)
             check("scrolling capture: \(image.height) px tall (document \(expected) px)", abs(image.height - expected) <= Int(8 * scale))
             // The exact height above proves nothing was skipped or doubled; OCR confirms the
@@ -126,6 +128,12 @@ enum SelfTest {
         } catch {
             check("scrolling capture: \(error.localizedDescription)", false)
         }
+    }
+
+    /// `GLINT_SELFTEST_DUMP=<dir>` keeps result images for a look.
+    private static func dump(_ image: CGImage, scale: CGFloat, as name: String) {
+        guard let dir = ProcessInfo.processInfo.environment["GLINT_SELFTEST_DUMP"] else { return }
+        try? Capture.png(image, scale: scale).write(to: URL(fileURLWithPath: dir).appendingPathComponent(name))
     }
 
     private static func check(_ label: String, _ ok: Bool) {

@@ -20,6 +20,7 @@ enum Prefs {
             "openEditor": false,
             "playSound": true,
             "showCursor": false,
+            "windowShadow": true,
             "format": Format.png.rawValue,
             "downscaleRetina": false,
             "filenamePrefix": "Glint",
@@ -41,6 +42,7 @@ enum Prefs {
     static var openEditor: Bool { d.bool(forKey: "openEditor") }
     static var playSound: Bool { d.bool(forKey: "playSound") }
     static var showCursor: Bool { d.bool(forKey: "showCursor") }
+    static var windowShadow: Bool { d.bool(forKey: "windowShadow") }
     static var format: Format { Format(rawValue: d.string(forKey: "format") ?? "") ?? .png }
     static var downscaleRetina: Bool { d.bool(forKey: "downscaleRetina") }
     static var filenamePrefix: String { d.string(forKey: "filenamePrefix") ?? "Glint" }
