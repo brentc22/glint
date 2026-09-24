@@ -1,5 +1,5 @@
 import AppKit
-import ScreenCaptureKit
+@preconcurrency import ScreenCaptureKit  // SCShareableContent isn't Sendable in the macOS 15 SDK
 
 /// A frozen image of one display, taken before the selection overlay appears — so what
 /// you select is exactly what you saw, menus and hover states included.

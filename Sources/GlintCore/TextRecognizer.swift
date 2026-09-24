@@ -1,5 +1,5 @@
 import CoreGraphics
-import Vision
+@preconcurrency import Vision
 
 /// On-device text recognition (Apple Vision) — nothing leaves the Mac.
 public enum TextRecognizer {
