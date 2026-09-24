@@ -3,7 +3,7 @@ import ScreenCaptureKit
 
 /// A frozen image of one display, taken before the selection overlay appears — so what
 /// you select is exactly what you saw, menus and hover states included.
-struct DisplayShot {
+struct DisplayShot: @unchecked Sendable {  // NSScreen is only read on the main actor
     let screen: NSScreen
     let image: CGImage
     var scale: CGFloat { screen.backingScaleFactor }
@@ -23,6 +23,7 @@ enum CaptureError: LocalizedError {
     }
 }
 
+@MainActor
 enum Capturer {
     static var hasPermission: Bool { CGPreflightScreenCaptureAccess() }
 
