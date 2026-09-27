@@ -123,37 +123,50 @@ struct EditorActions {
 private struct EditorToolbar: View {
     @ObservedObject var model: EditorModel
     let actions: EditorActions
+    @Namespace private var selection
 
     var body: some View {
         HStack(spacing: 10) {
             HStack(spacing: 2) {
                 ForEach(Tool.allCases) { tool in
-                    iconButton(tool.symbol, help: "\(tool.title) (\(tool.key.uppercased()))", active: model.tool == tool) {
-                        model.tool = tool
+                    ToolbarIcon(symbol: tool.symbol, active: model.tool == tool, namespace: selection) {
+                        withAnimation(Motion.spring) { model.tool = tool }
                     }
+                    .help("\(tool.title) (\(tool.key.uppercased()))")
                 }
             }
+            // Also when the tool changes by its key (A, R, O…), not only by a click.
+            .animation(Motion.spring, value: model.tool)
             divider
             HStack(spacing: 5) {
                 ForEach(RGBA.palette, id: \.self) { c in
                     Circle()
                         .fill(Color(cgColor: c.cgColor))
                         .frame(width: 16, height: 16)
-                        .overlay(Circle().strokeBorder(.primary.opacity(model.color == c ? 0.9 : 0.15), lineWidth: model.color == c ? 2 : 1))
-                        .padding(2)
+                        .overlay(Circle().strokeBorder(.primary.opacity(0.15), lineWidth: 0.5))
+                        .padding(3)
+                        .overlay(Circle().strokeBorder(Color.accentColor, lineWidth: 2)
+                            .scaleEffect(model.color == c ? 1 : 0.6)
+                            .opacity(model.color == c ? 1 : 0))
                         .contentShape(Circle())
-                        .onTapGesture { model.color = c }
+                        .onTapGesture { withAnimation(Motion.spring) { model.color = c } }
                 }
             }
             divider
             HStack(spacing: 2) {
                 ForEach(StrokeSize.allCases) { s in
-                    Button { model.size = s } label: {
+                    Button { withAnimation(Motion.spring) { model.size = s } } label: {
                         Circle().frame(width: 4 + s.rawValue, height: 4 + s.rawValue)
                             .frame(width: 26, height: 26)
-                            .background(model.size == s ? Color.primary.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                            .background {
+                                if model.size == s {
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(0.1))
+                                        .matchedGeometryEffect(id: "size", in: selection)
+                                }
+                            }
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressableStyle())
                     .help("Stroke \(s == .small ? "thin" : s == .medium ? "medium" : "thick")")
                 }
             }
@@ -196,15 +209,47 @@ private struct EditorToolbar: View {
     private var divider: some View { Divider().frame(height: 22) }
 
     private func iconButton(_ symbol: String, help: String, active: Bool, action: @escaping () -> Void) -> some View {
+        ToolbarIcon(symbol: symbol, active: active, namespace: nil, action: action).help(help)
+    }
+}
+
+/// Hover state lives in an object: `@State` is a macro that needs full Xcode (see CardState).
+@MainActor
+private final class HoverState: ObservableObject {
+    @Published var inside = false
+}
+
+/// A toolbar icon like the ones in native apps: a soft plate on hover, the accent plate when
+/// selected — and with a namespace, the selection plate slides from tool to tool.
+private struct ToolbarIcon: View {
+    let symbol: String
+    let active: Bool
+    let namespace: Namespace.ID?
+    let action: () -> Void
+    @StateObject private var hover = HoverState()
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .medium))
                 .frame(width: 28, height: 28)
-                .background(active ? Color.accentColor.opacity(0.9) : .clear, in: RoundedRectangle(cornerRadius: 7))
                 .foregroundStyle(active ? Color.white : Color.primary)
+                .background {
+                    if active {
+                        plate(Color.accentColor)
+                    } else if hover.inside, isEnabled {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(0.08))
+                    }
+                }
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .help(help)
+        .buttonStyle(PressableStyle())
+        .onHover { inside in withAnimation(Motion.quick) { hover.inside = inside } }
+    }
+
+    @ViewBuilder private func plate(_ color: Color) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 7, style: .continuous).fill(color)
+        if let namespace { shape.matchedGeometryEffect(id: "tool", in: namespace) } else { shape }
     }
 }

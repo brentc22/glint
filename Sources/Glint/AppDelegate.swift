@@ -298,13 +298,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 session.start()
             case .capture:
                 if let id = shot.screen.displayID { lastArea = (id, rect) }
-                finish(Capture(image: image, scale: shot.scale), screen: shot.screen)
+                finish(Capture(image: image, scale: shot.scale), screen: shot.screen,
+                       from: shot.screen.globalRect(fromTopLeft: rect))
             }
-        case let .window(id):
+        case let .window(id, frame):
             Task {
                 do {
                     let (image, scale) = try await Capturer.captureWindow(id)
-                    finish(Capture(window: image, scale: scale), screen: NSScreen.main)
+                    let screen = NSScreen.screens.first { $0.frame.intersects(frame) } ?? NSScreen.main
+                    finish(Capture(window: image, scale: scale), screen: screen, from: frame)
                 } catch {
                     Toast.show(error.localizedDescription, symbol: "exclamationmark.triangle.fill")
                 }
@@ -319,7 +321,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard await Permission.ensure(), let shots = try? await Capturer.captureDisplays() else { return }
             let mouse = NSEvent.mouseLocation
             guard let shot = shots.first(where: { $0.screen.frame.contains(mouse) }) ?? shots.first else { return }
-            finish(Capture(image: shot.image, scale: shot.scale), screen: shot.screen)
+            finish(Capture(image: shot.image, scale: shot.scale), screen: shot.screen, from: shot.screen.frame)
         }
     }
 
@@ -332,13 +334,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func finish(_ capture: Capture, screen: NSScreen?) {
+    /// `from`: where the capture was on screen, so its thumbnail can fly out of it.
+    private func finish(_ capture: Capture, screen: NSScreen?, from source: CGRect? = nil) {
         Capture.playShutter()
         Task {
             if Prefs.autoRedact { _ = await Self.redactInPlace(capture) }
             if Prefs.autoSave { _ = try? capture.save() }
             if Prefs.copyToClipboard { capture.copy() }
-            if Prefs.openEditor { edit(capture) } else if Prefs.showQuickAccess { quickAccess.show(capture, on: screen) }
+            if Prefs.openEditor { edit(capture) } else if Prefs.showQuickAccess { quickAccess.show(capture, on: screen, from: source) }
         }
     }
 

@@ -1,12 +1,13 @@
 import AppKit
 
-/// A short HUD message in the middle of the screen — "Copied 42 words".
+/// A short HUD message low in the middle of the screen — "Copied 42 words". Pops in and
+/// fades away like the volume and brightness HUDs.
 @MainActor
 enum Toast {
     private static var panel: NSPanel?
 
     static func show(_ message: String, symbol: String = "checkmark.circle.fill") {
-        panel?.orderOut(nil)
+        if let old = panel { dismiss(old, duration: 0.1) }
         let label = NSTextField(labelWithString: message)
         label.font = .systemFont(ofSize: 15, weight: .semibold)
         label.textColor = .white
@@ -22,7 +23,11 @@ enum Toast {
         effect.state = .active
         effect.appearance = NSAppearance(named: .vibrantDark)
         effect.wantsLayer = true
-        effect.layer?.cornerRadius = 14
+        effect.layer?.cornerRadius = 18
+        effect.layer?.cornerCurve = .continuous
+        effect.layer?.masksToBounds = true
+        effect.layer?.borderWidth = 0.5
+        effect.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
         effect.addSubview(stack)
         stack.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -39,14 +44,25 @@ enum Toast {
         p.backgroundColor = .clear
         p.hasShadow = true
         p.ignoresMouseEvents = true
-        p.contentView = effect
+        // The pop scales the HUD inside a still container: AppKit owns the root view's layer.
+        let container = NSView(frame: CGRect(origin: .zero, size: size))
+        effect.frame = container.bounds
+        effect.autoresizingMask = [.width, .height]
+        container.addSubview(effect)
+        p.contentView = container
+        p.alphaValue = 0
         p.orderFrontRegardless()
         panel = p
+        Motion.pop(effect, from: 0.9, duration: 0.34)
+        Motion.animate(0.18) { p.animator().alphaValue = 1 }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-            if panel === p {
-                NSAnimationContext.runAnimationGroup({ $0.duration = 0.25; p.animator().alphaValue = 0 },
-                                                     completionHandler: { MainActor.assumeIsolated { p.orderOut(nil) } })
-            }
+            if panel === p { dismiss(p, duration: 0.28) }
         }
+    }
+
+    private static func dismiss(_ p: NSPanel, duration: TimeInterval) {
+        if panel === p { panel = nil }
+        if let view = p.contentView?.subviews.first { Motion.shrink(view, to: 0.96, duration: duration) }
+        Motion.animate(duration, Motion.exit, { p.animator().alphaValue = 0 }, completion: { p.orderOut(nil) })
     }
 }

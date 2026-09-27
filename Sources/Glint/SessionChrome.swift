@@ -8,6 +8,8 @@ final class SessionChrome {
     let status = NSTextField(labelWithString: "")
     private let frame: NSPanel
     private let hud: NSPanel
+    private let icon: NSImageView
+    private let pulses: Bool
 
     init(screen: NSScreen, rect: CGRect, color: NSColor, symbol: String, buttons: [NSButton]) {
         // `rect` is top-left-origin points in `screen`; AppKit windows are bottom-left.
@@ -26,9 +28,15 @@ final class SessionChrome {
         effect.state = .active
         effect.appearance = NSAppearance(named: .vibrantDark)
         effect.wantsLayer = true
-        effect.layer?.cornerRadius = 12
-        let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage())
+        effect.layer?.cornerRadius = 14
+        effect.layer?.cornerCurve = .continuous
+        effect.layer?.masksToBounds = true
+        effect.layer?.borderWidth = 0.5
+        effect.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
+        icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage())
         icon.contentTintColor = color
+        icon.wantsLayer = true
+        pulses = color == .systemRed
         status.textColor = .white
         status.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         status.lineBreakMode = .byTruncatingTail
@@ -43,13 +51,35 @@ final class SessionChrome {
     }
 
     func show() {
+        let home = hud.frame
+        frame.alphaValue = 0
+        hud.alphaValue = 0
+        if !Motion.reduced { hud.setFrame(home.offsetBy(dx: 0, dy: -10), display: false) }
         frame.orderFrontRegardless()
         hud.orderFrontRegardless()
+        Motion.animate(0.36) {
+            self.hud.animator().setFrame(home, display: true)
+            self.hud.animator().alphaValue = 1
+            self.frame.animator().alphaValue = 1
+        }
+        // A recording breathes, so it's clear something is running.
+        if pulses, !Motion.reduced, let layer = icon.layer {
+            let pulse = CABasicAnimation(keyPath: "opacity")
+            pulse.fromValue = 1
+            pulse.toValue = 0.35
+            pulse.duration = 0.9
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            layer.add(pulse, forKey: "pulse")
+        }
     }
 
+    /// The frame goes at once, so the last captured frame can't catch it fading; the HUD eases out.
     func close() {
         frame.orderOut(nil)
-        hud.orderOut(nil)
+        let hud = hud
+        Motion.animate(0.2, Motion.exit, { hud.animator().alphaValue = 0 }, completion: { hud.orderOut(nil) })
     }
 
     private static func panel(_ rect: CGRect, clickThrough: Bool) -> NSPanel {

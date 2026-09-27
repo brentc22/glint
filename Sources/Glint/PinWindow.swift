@@ -12,8 +12,11 @@ final class PinWindow: NSPanel {
     static func pin(_ capture: Capture, onEdit: @escaping (Capture) -> Void) {
         let window = PinWindow(capture, onEdit: onEdit)
         open.append(window)
+        window.alphaValue = 0
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        if let image = window.imageView { Motion.pop(image, from: 0.9, duration: 0.36) }
+        Motion.animate(0.2) { window.animator().alphaValue = 1 }
     }
 
     private init(_ capture: Capture, onEdit: @escaping (Capture) -> Void) {
@@ -35,22 +38,35 @@ final class PinWindow: NSPanel {
         isReleasedWhenClosed = false
 
         let view = PinView(frame: CGRect(origin: .zero, size: size))
+        view.autoresizingMask = [.width, .height]
         view.wantsLayer = true
         view.layer?.contents = capture.image
         view.layer?.contentsGravity = .resizeAspect
-        view.layer?.cornerRadius = 6
+        view.layer?.cornerRadius = 8
+        view.layer?.cornerCurve = .continuous
         view.layer?.masksToBounds = true
-        view.layer?.borderWidth = 1
-        view.layer?.borderColor = NSColor.white.withAlphaComponent(0.3).cgColor
+        view.layer?.borderWidth = 0.5
+        view.layer?.borderColor = NSColor.white.withAlphaComponent(0.25).cgColor
         view.menu = contextMenu()
-        contentView = view
+        // The image scales inside a still container: AppKit owns the root view's layer.
+        let container = PinView(frame: view.frame)
+        container.addSubview(view)
+        container.menu = view.menu
+        contentView = container
     }
+
+    fileprivate var imageView: NSView? { contentView?.subviews.first }
+    private var closing = false
 
     override var canBecomeKey: Bool { true }
 
+    /// Shrinks and fades away rather than vanishing.
     override func close() {
-        super.close()
+        guard !closing else { return }
+        closing = true
         Self.open.removeAll { $0 === self }
+        if let image = imageView { Motion.shrink(image, to: 0.92, duration: 0.18) }
+        Motion.animate(0.18, Motion.exit, { self.animator().alphaValue = 0 }, completion: { super.close() })
     }
 
     override func keyDown(with event: NSEvent) {

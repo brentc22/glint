@@ -119,6 +119,11 @@ extension NSScreen {
         deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
     }
 
+    /// A rect in this screen's top-left-origin points, in AppKit global coordinates.
+    func globalRect(fromTopLeft rect: CGRect) -> CGRect {
+        CGRect(x: frame.minX + rect.minX, y: frame.maxY - rect.maxY, width: rect.width, height: rect.height)
+    }
+
     /// This screen's frame in CoreGraphics global coordinates (top-left of the main display).
     var cgFrame: CGRect {
         let mainHeight = NSScreen.screens.first?.frame.height ?? frame.height

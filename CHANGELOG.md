@@ -1,12 +1,23 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-09-27
 
 - The default shortcuts are the macOS ones: ⇧⌘3 full screen, ⇧⌘4 area, ⇧⌘5 record.
   The other captures keep ⌃⇧. Existing custom shortcuts are left alone.
 - ⇧⌘4 does area and window in one: the window under the cursor is highlighted, a click
   takes that window on its own (uncovered, with shadow and transparent corners), a drag
   takes an area. Before, a click cropped the window from the frozen screenshot.
+- Motion throughout, on one shared timing so it all moves alike, and plain fades with
+  Reduce Motion on:
+  - a capture shrinks from where it was taken into its thumbnail;
+  - thumbnails slide in from the screen edge, make room for each other, and leave over
+    the edge; a two-finger swipe toward the edge dismisses one;
+  - the selection dim eases in, the window highlight glides from window to window, and
+    the hints sit in a blurred HUD pill;
+  - toasts pop in like the volume HUD; pins pop in and shrink away;
+  - the editor's tool highlight slides to the chosen tool, also from the keyboard;
+  - the recording HUD slides in and its dot breathes.
+- Quick access buttons are glass (system materials) and give when pressed.
 - Settings → Shortcuts flags a shortcut that macOS's own screenshot shortcuts still
   own, with a button to Keyboard Shortcuts. Carbon registers it without complaint but
   macOS gets the keys first.
