@@ -32,17 +32,19 @@ enum CaptureCommand: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The three macOS keeps for itself — ⇧⌘3, ⇧⌘4 (Space for a window) and ⇧⌘5 — do the
+    /// same here, so muscle memory carries over. The rest have no macOS counterpart.
     var defaultShortcut: HotKeys.Combo {
-        let key: Int = switch self {
-        case .area: kVK_ANSI_4
-        case .window: kVK_ANSI_5
-        case .fullScreen: kVK_ANSI_3
-        case .previousArea: kVK_ANSI_6
-        case .scrolling: kVK_ANSI_7
-        case .text: kVK_ANSI_2
-        case .recording: kVK_ANSI_8
+        let (key, modifiers): (Int, NSEvent.ModifierFlags) = switch self {
+        case .fullScreen: (kVK_ANSI_3, [.shift, .command])
+        case .area: (kVK_ANSI_4, [.shift, .command])
+        case .recording: (kVK_ANSI_5, [.shift, .command])
+        case .window: (kVK_ANSI_5, [.control, .shift])
+        case .previousArea: (kVK_ANSI_6, [.control, .shift])
+        case .scrolling: (kVK_ANSI_7, [.control, .shift])
+        case .text: (kVK_ANSI_2, [.control, .shift])
         }
-        return HotKeys.Combo(keyCode: key, modifiers: [.control, .shift])
+        return HotKeys.Combo(keyCode: key, modifiers: modifiers)
     }
 
     /// `nil` when the user cleared it.

@@ -166,9 +166,10 @@ private final class SelectionView: NSView {
         if let rect = selection, rect.width > 3, rect.height > 3 {
             overlay.finish(.area(shot, rect))
         } else if let window = hoveredWindow, overlay.allowsWindowMode {
-            // A click without a drag takes the window under the cursor — cropped from the
-            // frozen shot, so it's exactly what was on screen, like any other area.
-            overlay.finish(.area(shot, window.frame.intersection(bounds)))
+            // A click without a drag takes the window under the cursor, as it is on its own:
+            // uncovered, with its shadow and transparent corners. Drag for an area, click for
+            // a window, one shortcut for both.
+            overlay.finish(.window(window.id))
         } else {
             overlay.finish(.area(shot, bounds))
         }
@@ -196,15 +197,17 @@ private final class SelectionView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        let hole: CGRect? = overlay.mode == .window ? hoveredWindow?.frame : selection
+        // Before a drag starts, the window a click would take is shown, like in window mode.
+        let windowHole = overlay.mode == .window || (overlay.allowsWindowMode && selection == nil)
+        let hole: CGRect? = windowHole ? hoveredWindow?.frame : selection
 
         ctx.addRect(bounds)
         if let hole { ctx.addRect(hole) }
-        ctx.setFillColor(NSColor.black.withAlphaComponent(overlay.mode == .window ? 0.25 : 0.35).cgColor)
+        ctx.setFillColor(NSColor.black.withAlphaComponent(windowHole ? 0.25 : 0.35).cgColor)
         ctx.fillPath(using: .evenOdd)
 
         if let hole {
-            if overlay.mode == .window {
+            if windowHole {
                 ctx.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.18).cgColor)
                 ctx.fill(hole)
                 ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
@@ -291,7 +294,7 @@ private final class SelectionView: NSView {
     private func hintBar() {
         let text = overlay.mode == .window
             ? "Click a window  ·  Space: select area  ·  Esc: cancel"
-            : overlay.hint + (overlay.allowsWindowMode ? "  ·  Space: pick window" : "") + "  ·  C: copy color  ·  ⏎ full screen  ·  Esc: cancel"
+            : overlay.hint + (overlay.allowsWindowMode ? "  ·  Space: windows only" : "") + "  ·  C: copy color  ·  ⏎ full screen  ·  Esc: cancel"
         pill(text, at: CGPoint(x: bounds.midX, y: bounds.minY + 60), size: 13)
     }
 

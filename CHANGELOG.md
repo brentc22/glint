@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- The default shortcuts are the macOS ones: ⇧⌘3 full screen, ⇧⌘4 area, ⇧⌘5 record.
+  The other captures keep ⌃⇧. Existing custom shortcuts are left alone.
+- ⇧⌘4 does area and window in one: the window under the cursor is highlighted, a click
+  takes that window on its own (uncovered, with shadow and transparent corners), a drag
+  takes an area. Before, a click cropped the window from the frozen screenshot.
+- Settings → Shortcuts flags a shortcut that macOS's own screenshot shortcuts still
+  own, with a button to Keyboard Shortcuts. Carbon registers it without complaint but
+  macOS gets the keys first.
+
 ## 0.2.2 — 2026-09-24
 
 - The window shadow falls below the window, like macOS's own, instead of above it and

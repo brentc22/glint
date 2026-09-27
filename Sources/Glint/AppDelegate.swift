@@ -30,13 +30,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// (Re)binds every command's shortcut; the Shortcuts settings call this after a change.
-    /// Returns the commands whose shortcut another app already owns.
+    /// Returns the commands whose shortcut another app (or macOS itself) already owns.
     @discardableResult
     func registerShortcuts() -> [CaptureCommand] {
         hotKeys.unregisterAll()
+        let system = SystemShortcuts.enabledScreenshotCombos()
         return CaptureCommand.allCases.filter { command in
             guard let combo = command.shortcut else { return false }
-            return !hotKeys.register(combo) { [weak self] in self?.run(command) }
+            let registered = hotKeys.register(combo) { [weak self] in self?.run(command) }
+            return !registered || system.contains(combo)
         }
     }
 
@@ -241,7 +243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         var hint: String {
             switch self {
-            case .capture: "Drag to capture"
+            case .capture: "Drag for an area, click for a window"
             case .text: "Drag over text or a QR code to copy it"
             case .scrolling: "Select the part that scrolls"
             case .recording: "Select what to record"

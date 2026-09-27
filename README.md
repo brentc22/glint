@@ -32,7 +32,8 @@ annotation: move it, delete it, or add more.
 - **Area**: freezes the screen first, so menus and hover states stay put. Crosshair,
   8× loupe with pixel coordinates and hex color, and a live size readout in pixels.
 - **Window**: the window on its own, even when something covers it, with its shadow and
-  transparent corners. Press <kbd>Space</kbd> during an area capture to switch.
+  transparent corners. Same shortcut as an area: drag for an area, click for the
+  highlighted window.
 - **Full screen** and **previous area** (the same rectangle again, for before/after shots).
 - **Scrolling capture**: select a region, scroll, press Done. Frames are stitched as you
   go; sticky headers, footers and floating buttons are detected so they don't repeat, and
@@ -84,17 +85,19 @@ project codes, or any regular expression.
 
 | Action | Shortcut |
 | --- | --- |
-| Capture area | <kbd>⌃⇧4</kbd> |
-| Capture window | <kbd>⌃⇧5</kbd> |
-| Capture full screen | <kbd>⌃⇧3</kbd> |
+| Capture area or window (drag or click) | <kbd>⇧⌘4</kbd> |
+| Capture full screen | <kbd>⇧⌘3</kbd> |
+| Record screen (press again to stop) | <kbd>⇧⌘5</kbd> |
+| Capture window only | <kbd>⌃⇧5</kbd> |
 | Capture previous area | <kbd>⌃⇧6</kbd> |
 | Scrolling capture (press again to finish) | <kbd>⌃⇧7</kbd> |
 | Capture text / QR code | <kbd>⌃⇧2</kbd> |
-| Record screen (press again to stop) | <kbd>⌃⇧8</kbd> |
 
-All of them can be changed in Settings → Shortcuts.
+⇧⌘3, ⇧⌘4 and ⇧⌘5 are the macOS keys, so turn off macOS's own under System Settings →
+Keyboard → Keyboard Shortcuts → Screenshots; Glint's Shortcuts settings flag them while
+they're still on. All of them can be changed in Settings → Shortcuts.
 
-While selecting: <kbd>Space</kbd> switches between area and window mode, <kbd>⏎</kbd> takes
+While selecting: <kbd>Space</kbd> switches to windows only (and back), <kbd>⏎</kbd> takes
 the whole screen, <kbd>C</kbd> copies the color under the cursor, <kbd>Esc</kbd> cancels.
 
 In the editor: <kbd>⌘Z</kbd> / <kbd>⇧⌘Z</kbd> undo and redo, <kbd>⌘C</kbd> copies,

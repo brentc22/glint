@@ -11,6 +11,8 @@ final class SettingsModel: ObservableObject {
 
     init(onShortcutsChanged: @escaping () -> [CaptureCommand]) {
         self.onShortcutsChanged = onShortcutsChanged
+        // Show clashes from the start, not only after the first edit.
+        conflicts = Set(onShortcutsChanged())
     }
 
     // General
@@ -224,7 +226,7 @@ private struct ShortcutsPane: View {
                         HStack {
                             if model.conflicts.contains(command) {
                                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                                    .help("Another app already uses this shortcut")
+                                    .help("Another app, or macOS itself, already uses this shortcut")
                             }
                             ShortcutRecorder(combo: command.shortcut) { model.setShortcut(command, $0) }
                         }
@@ -236,6 +238,14 @@ private struct ShortcutsPane: View {
                 HStack(alignment: .top) {
                     note("Click a shortcut and press new keys. ⌫ clears it, Esc cancels.")
                     Button("Restore Defaults", action: model.resetShortcuts)
+                }
+            }
+            if !model.conflicts.isEmpty {
+                Section {
+                    HStack(alignment: .top) {
+                        note("A shortcut marked ⚠︎ is taken. If it's ⇧⌘3, ⇧⌘4 or ⇧⌘5, turn off macOS's own under Keyboard Shortcuts → Screenshots.")
+                        Button("Open Keyboard Shortcuts", action: SystemShortcuts.openKeyboardShortcuts)
+                    }
                 }
             }
             Section("While selecting") {
