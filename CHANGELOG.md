@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.2 — 2026-09-28
+
+- The selection overlay goes quiet the moment it finishes: during its fade-out, C, Space
+  and hovering no longer act on it, and a window highlight that was still gliding no
+  longer keeps the overlay (and its full-screen shot) in memory.
+- Crops keep the screenshot's own pixel format and color space, so they stay exact.
+- Scrolling capture and recording no longer copy or hold on to the full frozen frame.
+- The editor's crop keeps only the cropped pixels too.
+
 ## 0.3.1 — 2026-09-28
 
 - Fixed a crash when the mouse moved while the selection overlay faded out.

@@ -16,7 +16,7 @@ public enum Renderer {
         }) else { return nil }
 
         let bounds = CGRect(origin: .zero, size: size)
-        let cropped = crop.map { $0.integral.intersection(bounds) }.flatMap { $0.isEmpty ? nil : flat.cropping(to: $0) } ?? flat
+        let cropped = crop.map { $0.integral.intersection(bounds) }.flatMap { $0.isEmpty ? nil : self.crop(flat, to: $0) } ?? flat
         // A backdrop brings its own shadow; a second one around the window would double up.
         if let backdrop { return framed(cropped, backdrop) }
         return windowShadow.map { self.windowShadow(cropped, scale: $0) } ?? cropped
@@ -231,12 +231,20 @@ public enum Renderer {
 
     /// `CGImage.cropping(to:)` is a view that keeps the whole source alive: a small area of a
     /// 3440×1440 screenshot would hold on to all 20 MB for as long as the capture lives.
-    /// This copies just the pixels, so the full frame can go.
+    /// This copies just the pixels — in the source's own format, so they stay exact — and
+    /// the full frame can go.
     public static func crop(_ image: CGImage, to rect: CGRect) -> CGImage? {
         guard let view = image.cropping(to: rect) else { return nil }
-        return draw(size: CGSize(width: view.width, height: view.height), space: image.colorSpace) {
-            drawImage(view, in: CGRect(x: 0, y: 0, width: view.width, height: view.height), $0)
+        if view.width == image.width, view.height == image.height { return image }  // nothing to free
+        let size = CGSize(width: view.width, height: view.height)
+        if let space = view.colorSpace, let ctx = CGContext(data: nil, width: view.width, height: view.height,
+                                                            bitsPerComponent: view.bitsPerComponent, bytesPerRow: 0,
+                                                            space: space, bitmapInfo: view.bitmapInfo.rawValue) {
+            ctx.draw(view, in: CGRect(origin: .zero, size: size))
+            return ctx.makeImage()
         }
+        // A format CGContext can't draw into (e.g. 16-bit float): fall back to 8-bit RGBA.
+        return draw(size: size, space: image.colorSpace) { drawImage(view, in: CGRect(origin: .zero, size: size), $0) }
     }
 
     /// A top-left-origin RGBA context of `size` pixels, in `space` when it's RGB (so Display

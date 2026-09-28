@@ -53,16 +53,17 @@ enum Capturer {
             return (screen, SCContentFilter(display: display, excludingWindows: own), config)
         }
         // All displays at once: the overlay waits for the slowest one, not for the sum.
+        // Every child returns or the group throws, so each slot gets filled.
         let images = try await withThrowingTaskGroup(of: (Int, CGImage).self) { group in
             for (i, job) in jobs.enumerated() {
                 let (filter, config) = (job.1, job.2)
                 group.addTask { (i, try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)) }
             }
-            var images = [Int: CGImage]()
+            var images = [CGImage?](repeating: nil, count: jobs.count)
             for try await (i, image) in group { images[i] = image }
             return images
         }
-        return jobs.enumerated().compactMap { i, job in images[i].map { DisplayShot(screen: job.0, image: $0) } }
+        return zip(jobs, images).map { DisplayShot(screen: $0.0, image: $1!) }
     }
 
     /// A reusable capture of one rectangle of one screen — for scrolling capture, which

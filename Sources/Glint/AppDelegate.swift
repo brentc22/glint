@@ -278,25 +278,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case let .area(shot, rect):
             let pixels = CGRect(x: rect.minX * shot.scale, y: rect.minY * shot.scale,
                                 width: rect.width * shot.scale, height: rect.height * shot.scale).integral
-            guard let image = Renderer.crop(shot.image, to: pixels) else { return }
+            // Only `screen` goes into the session closures: a whole DisplayShot would keep
+            // the full frozen frame alive for as long as a recording runs.
+            let screen = shot.screen
             switch purpose {
             case .text:
+                guard let image = Renderer.crop(shot.image, to: pixels) else { return }
                 Task { await Self.copyText(of: image) }
             case .scrolling:
-                let session = ScrollSession(screen: shot.screen, rect: rect) { [weak self] capture in
+                let session = ScrollSession(screen: screen, rect: rect) { [weak self] capture in
                     self?.scrollSession = nil
-                    if let capture { self?.finish(capture, screen: shot.screen) }
+                    if let capture { self?.finish(capture, screen: screen) }
                 }
                 scrollSession = session
                 session.start()
             case .recording:
-                let session = RecordingSession(screen: shot.screen, rect: rect) { [weak self] capture in
+                let session = RecordingSession(screen: screen, rect: rect) { [weak self] capture in
                     self?.recording = nil
-                    if let capture { self?.finishRecording(capture, screen: shot.screen) }
+                    if let capture { self?.finishRecording(capture, screen: screen) }
                 }
                 recording = session
                 session.start()
             case .capture:
+                guard let image = Renderer.crop(shot.image, to: pixels) else { return }
                 if let id = shot.screen.displayID { lastArea = (id, rect) }
                 finish(Capture(image: image, scale: shot.scale), screen: shot.screen,
                        from: shot.screen.globalRect(fromTopLeft: rect))

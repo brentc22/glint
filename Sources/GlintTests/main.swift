@@ -157,12 +157,24 @@ T.test("a backdrop replaces the window shadow instead of stacking on it") {
 }
 T.test("crop copies the pixels instead of keeping the whole source alive") {
     let big = Renderer.draw(size: CGSize(width: 2000, height: 1000)) { $0.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1)); $0.fill(CGRect(x: 100, y: 100, width: 50, height: 50)) }!
-    let view = big.cropping(to: CGRect(x: 100, y: 100, width: 50, height: 50))!
-    let copy = Renderer.crop(big, to: CGRect(x: 100, y: 100, width: 50, height: 50))!
-    T.expect(view.bytesPerRow >= 2000 * 4, "cropping(to:) is a view with the source's rows (\(view.bytesPerRow) bytes)")
-    T.expect(copy.bytesPerRow < 2000 * 4, "crop has its own rows (\(copy.bytesPerRow) bytes)")
+    let base = CFGetRetainCount(big)
+    let copy = autoreleasepool { Renderer.crop(big, to: CGRect(x: 100, y: 100, width: 50, height: 50))! }
+    T.equal(CFGetRetainCount(big), base, "the source isn't retained by the crop:")
     T.equal([copy.width, copy.height], [50, 50])
     T.equal(pixel(copy, 25, 25), pixel(big, 125, 125), "same pixels as the source:")
+}
+T.test("crop keeps the source's pixel format, and a full-size crop is the image itself") {
+    // ScreenCaptureKit's layout: 8-bit BGRA, no alpha, Display P3.
+    let info = CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+    let ctx = CGContext(data: nil, width: 64, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
+                        space: CGColorSpace(name: CGColorSpace.displayP3)!, bitmapInfo: info)!
+    ctx.setFillColor(CGColor(red: 0.2, green: 0.6, blue: 0.9, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: 64, height: 32))
+    let shot = ctx.makeImage()!
+    let piece = Renderer.crop(shot, to: CGRect(x: 8, y: 4, width: 16, height: 8))!
+    T.equal(piece.bitmapInfo, shot.bitmapInfo)
+    T.equal(piece.colorSpace?.name, CGColorSpace.displayP3)
+    T.equal(pixel(piece, 3, 3), pixel(shot, 11, 7), "pixels are exact:")
+    T.expect(Renderer.crop(shot, to: CGRect(x: 0, y: 0, width: 64, height: 32)) === shot, "full-size crop returns the image")
 }
 T.test("arrow shape ends at its tip") {
     let path = Renderer.arrowPath(from: CGPoint(x: 0, y: 0), to: CGPoint(x: 200, y: 0), width: 6)

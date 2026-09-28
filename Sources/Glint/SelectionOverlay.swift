@@ -86,6 +86,7 @@ final class SelectionOverlay {
                 panel.orderOut(nil)
             }
         }
+        views.forEach { $0.detach() }
         panels.removeAll()
         views.removeAll()
         NSCursor.arrow.set()
@@ -134,6 +135,7 @@ private final class SelectionView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func updateTrackingAreas() {
+        guard !isDetached else { return }
         trackingAreas.forEach(removeTrackingArea)
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
                                        owner: self))
@@ -158,6 +160,17 @@ private final class SelectionView: NSView {
     }
 
     // MARK: Events
+
+    /// The overlay is done; its panel may still be fading out. Stop reacting (keys, hover,
+    /// the glide's display link, which holds this view) so nothing acts on a finished
+    /// overlay and the view — with its full-screen shot — can go.
+    func detach() {
+        isDetached = true
+        stopGlide()
+        trackingAreas.forEach(removeTrackingArea)
+    }
+
+    private var isDetached = false
 
     override func mouseMoved(with event: NSEvent) { track(event) }
     override func mouseExited(with event: NSEvent) { mouse = nil; retarget(); updateHint(); needsDisplay = true }
@@ -230,6 +243,7 @@ private final class SelectionView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard !isDetached else { return }
         // The click itself says where the pointer is; hover tracking can lag or miss
         // (no move yet, or the first move on another display).
         track(event)
@@ -247,6 +261,7 @@ private final class SelectionView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard !isDetached else { return }
         guard overlay.mode == .area else { return }
         dragCurrent = convert(event.locationInWindow, from: nil)
         mouse = dragCurrent
@@ -256,6 +271,7 @@ private final class SelectionView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        guard !isDetached else { return }
         guard overlay.mode == .area, dragStart != nil else { return }
         defer { dragStart = nil; dragCurrent = nil }
         if let rect = selection, rect.width > 3, rect.height > 3 {
@@ -271,6 +287,7 @@ private final class SelectionView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        guard !isDetached else { return }
         switch Int(event.keyCode) {
         case 53: overlay.finish(.cancelled)                 // Esc
         case 49: overlay.toggleMode()                       // Space
