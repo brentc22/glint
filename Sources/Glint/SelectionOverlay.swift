@@ -75,6 +75,7 @@ final class SelectionOverlay {
     }
 
     func finish(_ result: SelectionResult) {
+        guard !panels.isEmpty else { return }  // a key or click during the fade-out
         // A capture fades out under its flying thumbnail. Scrolling and recording set up their
         // capture right away and must not see the overlay, so it goes at once for those.
         for panel in panels {
@@ -100,7 +101,10 @@ private final class OverlayPanel: NSPanel {
 private final class SelectionView: NSView {
     private let shot: DisplayShot
     private let windows: [PickableWindow]
-    private unowned let overlay: SelectionOverlay
+    /// Strong: a view outlives `finish()` while its panel fades out and still gets mouse moves
+    /// and draws then (tracking areas ignore `ignoresMouseEvents`). `finish()` drops the views,
+    /// which breaks the cycle.
+    private let overlay: SelectionOverlay
     private var mouse: CGPoint?
     private var dragStart: CGPoint?
     private var dragCurrent: CGPoint?

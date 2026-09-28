@@ -229,6 +229,16 @@ public enum Renderer {
 
     // MARK: - Plumbing
 
+    /// `CGImage.cropping(to:)` is a view that keeps the whole source alive: a small area of a
+    /// 3440×1440 screenshot would hold on to all 20 MB for as long as the capture lives.
+    /// This copies just the pixels, so the full frame can go.
+    public static func crop(_ image: CGImage, to rect: CGRect) -> CGImage? {
+        guard let view = image.cropping(to: rect) else { return nil }
+        return draw(size: CGSize(width: view.width, height: view.height), space: image.colorSpace) {
+            drawImage(view, in: CGRect(x: 0, y: 0, width: view.width, height: view.height), $0)
+        }
+    }
+
     /// A top-left-origin RGBA context of `size` pixels, in `space` when it's RGB (so Display
     /// P3 captures stay P3) and sRGB otherwise. Note: shadow offsets ignore the flip and stay
     /// y-up, so a shadow that falls down needs a negative height.

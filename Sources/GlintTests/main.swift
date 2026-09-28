@@ -155,6 +155,15 @@ T.test("a backdrop replaces the window shadow instead of stacking on it") {
     framed.apply { $0.backdrop = Backdrop(from: .red, to: .blue, padding: 40) }
     T.equal(framed.render()!.width, 480)
 }
+T.test("crop copies the pixels instead of keeping the whole source alive") {
+    let big = Renderer.draw(size: CGSize(width: 2000, height: 1000)) { $0.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1)); $0.fill(CGRect(x: 100, y: 100, width: 50, height: 50)) }!
+    let view = big.cropping(to: CGRect(x: 100, y: 100, width: 50, height: 50))!
+    let copy = Renderer.crop(big, to: CGRect(x: 100, y: 100, width: 50, height: 50))!
+    T.expect(view.bytesPerRow >= 2000 * 4, "cropping(to:) is a view with the source's rows (\(view.bytesPerRow) bytes)")
+    T.expect(copy.bytesPerRow < 2000 * 4, "crop has its own rows (\(copy.bytesPerRow) bytes)")
+    T.equal([copy.width, copy.height], [50, 50])
+    T.equal(pixel(copy, 25, 25), pixel(big, 125, 125), "same pixels as the source:")
+}
 T.test("arrow shape ends at its tip") {
     let path = Renderer.arrowPath(from: CGPoint(x: 0, y: 0), to: CGPoint(x: 200, y: 0), width: 6)
     T.expect(path.contains(CGPoint(x: 195, y: 0)), "near the tip is filled")

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 — 2026-09-28
+
+- Fixed a crash when the mouse moved while the selection overlay faded out.
+- An area capture keeps only its own pixels. Before, it held on to the whole frozen
+  screenshot (20 MB for a 3440×1440 display) for as long as the thumbnail, editor or pin
+  lived: 20 captures now leave Glint at 36 MB instead of 178 MB.
+- All displays are captured at once when the overlay opens, instead of one by one.
+
 ## 0.3.0 — 2026-09-27
 
 - The default shortcuts are the macOS ones: ⇧⌘3 full screen, ⇧⌘4 area, ⇧⌘5 record.

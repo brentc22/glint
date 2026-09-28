@@ -278,7 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case let .area(shot, rect):
             let pixels = CGRect(x: rect.minX * shot.scale, y: rect.minY * shot.scale,
                                 width: rect.width * shot.scale, height: rect.height * shot.scale).integral
-            guard let image = shot.image.cropping(to: pixels) else { return }
+            guard let image = Renderer.crop(shot.image, to: pixels) else { return }
             switch purpose {
             case .text:
                 Task { await Self.copyText(of: image) }

@@ -43,19 +43,26 @@ enum Capturer {
         guard await hasPermission() else { throw CaptureError.permissionDenied }
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         let own = content.windows.filter { $0.owningApplication?.processID == getpid() }
-        var shots: [DisplayShot] = []
-        for screen in NSScreen.screens {
-            guard let id = screen.displayID, let display = content.displays.first(where: { $0.displayID == id }) else { continue }
+        let jobs = NSScreen.screens.compactMap { screen -> (NSScreen, SCContentFilter, SCStreamConfiguration)? in
+            guard let id = screen.displayID, let display = content.displays.first(where: { $0.displayID == id }) else { return nil }
             let config = SCStreamConfiguration()
             config.width = Int(CGFloat(display.width) * screen.backingScaleFactor)
             config.height = Int(CGFloat(display.height) * screen.backingScaleFactor)
             config.showsCursor = Prefs.showCursor
             config.captureResolution = .best
-            let filter = SCContentFilter(display: display, excludingWindows: own)
-            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-            shots.append(DisplayShot(screen: screen, image: image))
+            return (screen, SCContentFilter(display: display, excludingWindows: own), config)
         }
-        return shots
+        // All displays at once: the overlay waits for the slowest one, not for the sum.
+        let images = try await withThrowingTaskGroup(of: (Int, CGImage).self) { group in
+            for (i, job) in jobs.enumerated() {
+                let (filter, config) = (job.1, job.2)
+                group.addTask { (i, try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)) }
+            }
+            var images = [Int: CGImage]()
+            for try await (i, image) in group { images[i] = image }
+            return images
+        }
+        return jobs.enumerated().compactMap { i, job in images[i].map { DisplayShot(screen: job.0, image: $0) } }
     }
 
     /// A reusable capture of one rectangle of one screen — for scrolling capture, which
