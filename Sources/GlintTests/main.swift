@@ -126,6 +126,40 @@ T.test("pixelate replaces detail with blocks") {
     T.equal(a, b, "neighbouring pixels in one block are equal:")
     T.expect(a > 40 && a < 215, "block is a mix, not pure black/white (\(a))")
 }
+T.test("blur is soft, stays inside its box, and carries no more than the block averages") {
+    let checker = Renderer.draw(size: CGSize(width: 200, height: 100)) { ctx in
+        ctx.setFillColor(CGColor(gray: 1, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: 200, height: 100))
+        for x in stride(from: 0, to: 200, by: 2) { for y in stride(from: 0, to: 100, by: 2) where (x + y) % 4 == 0 {
+            ctx.setFillColor(CGColor(gray: 0, alpha: 1)); ctx.fill(CGRect(x: x, y: y, width: 2, height: 2))
+        } }
+    }!
+    let box = CGRect(x: 0, y: 0, width: 100, height: 100)
+    let out = Renderer.render(checker, annotations: [Annotation(.blur(box))])!
+    let a = pixel(out, 40, 40)[0], b = pixel(out, 41, 40)[0]
+    T.expect(abs(Int(a) - Int(b)) <= 2, "neighbours are smooth (\(a) vs \(b))")
+    T.expect(a > 40 && a < 215, "a mix, not the checker (\(a))")
+    T.equal(pixel(out, 150, 40), pixel(checker, 150, 40), "outside the box is untouched:")
+    // Two sources with the same block averages blur to the same pixels: nothing else gets through.
+    let flat = Renderer.draw(size: CGSize(width: 200, height: 100)) { ctx in
+        let grid = BlockGrid(checker, box)!
+        for row in 0..<grid.rows { for col in 0..<grid.cols {
+            let v = CGFloat(grid.cells[(row * grid.cols + col) * 4]) / 255
+            ctx.setFillColor(CGColor(srgbRed: v, green: v, blue: v, alpha: 1)); ctx.fill(grid.cellRect(col, row))
+        } }
+    }!
+    let same = Renderer.render(flat, annotations: [Annotation(.blur(box))])!
+    T.expect(abs(Int(pixel(same, 40, 40)[0]) - Int(a)) <= 2, "blur of the averages matches the blur of the original (\(pixel(same, 40, 40)[0]) vs \(a))")
+}
+T.test("spotlight dims outside its box, and two spotlights don't dim each other") {
+    let spots = [Annotation(.spotlight(CGRect(x: 10, y: 10, width: 80, height: 80))),
+                 Annotation(.spotlight(CGRect(x: 60, y: 60, width: 80, height: 80)))]
+    let out = Renderer.render(white, annotations: spots)!
+    T.equal(pixel(out, 50, 50)[0], 255, "inside the first:")
+    T.equal(pixel(out, 120, 120)[0], 255, "inside the second:")
+    T.expect(pixel(out, 300, 150)[0] < 140, "outside is dimmed (\(pixel(out, 300, 150)[0]))")
+    let arrowOnTop = Renderer.render(white, annotations: [Annotation(.filledRectangle(CGRect(x: 300, y: 100, width: 20, height: 20)), color: .white)] + spots)!
+    T.equal(pixel(arrowOnTop, 310, 110)[0], 255, "marks stay bright over the dim, whatever their order:")
+}
 T.test("crop and backdrop change the output size") {
     let cropped = Renderer.render(white, annotations: [], crop: CGRect(x: 10, y: 10, width: 100, height: 50))!
     T.equal([cropped.width, cropped.height], [100, 50])

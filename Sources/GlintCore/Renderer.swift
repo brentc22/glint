@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreImage
 import CoreText
 import Foundation
 
@@ -12,7 +13,7 @@ public enum Renderer {
         let size = CGSize(width: image.width, height: image.height)
         guard let flat = draw(size: size, space: image.colorSpace, { ctx in
             drawImage(image, in: CGRect(origin: .zero, size: size), ctx)
-            for annotation in annotations { draw(annotation, over: image, ctx) }
+            draw(annotations, over: image, in: ctx)
         }) else { return nil }
 
         let bounds = CGRect(origin: .zero, size: size)
@@ -25,6 +26,9 @@ public enum Renderer {
     /// Draws every annotation into an existing top-left-origin context — the editor
     /// canvas uses this so what you see while editing is exactly what gets exported.
     public static func draw(_ annotations: [Annotation], over image: CGImage, in ctx: CGContext) {
+        // The dim goes under everything else, so arrows and labels stay bright on top of it.
+        spotlight(annotations.compactMap { if case let .spotlight(r) = $0.kind { r } else { nil } },
+                  size: CGSize(width: image.width, height: image.height), ctx)
         for annotation in annotations { draw(annotation, over: image, ctx) }
     }
 
@@ -63,6 +67,10 @@ public enum Renderer {
             ctx.fill(r)
         case let .pixelate(r):
             pixelate(image, r, ctx)
+        case let .blur(r):
+            blur(image, r, ctx)
+        case .spotlight:
+            break  // drawn together, before the rest
         case let .freehand(points):
             guard points.count > 1 else { return }
             shadow(ctx, a.lineWidth)
@@ -112,37 +120,60 @@ public enum Renderer {
     /// Pixelates what's under `rect` in the original screenshot: every block becomes the
     /// exact average of its pixels. Averaging (not resampling, which keeps one real pixel
     /// per block) plus blocks that scale with the shorter side — a line of text becomes one
-    /// or two rows — leaves nothing to recover, unlike a blur.
+    /// or two rows — leaves nothing to recover, unlike a blur over the real pixels.
     private static func pixelate(_ image: CGImage, _ rect: CGRect, _ ctx: CGContext) {
-        let r = rect.integral.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        guard !r.isEmpty, let source = image.cropping(to: r) else { return }
-        let (w, h) = (source.width, source.height)
-        var pixels = [UInt8](repeating: 0, count: w * h * 4)
-        guard let bitmap = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                     space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
-        bitmap.draw(source, in: CGRect(x: 0, y: 0, width: w, height: h))  // row 0 of the buffer = top
-
-        let block = Int(pixelBlockSize(for: r))
-        for by in stride(from: 0, to: h, by: block) {
-            for bx in stride(from: 0, to: w, by: block) {
-                let bw = min(block, w - bx), bh = min(block, h - by)
-                var sum = [Int](repeating: 0, count: 4)
-                for y in by..<(by + bh) {
-                    var i = (y * w + bx) * 4
-                    for _ in 0..<bw {
-                        for c in 0..<4 { sum[c] += Int(pixels[i + c]) }
-                        i += 4
-                    }
-                }
-                let n = CGFloat(bw * bh * 255)
-                let alpha = CGFloat(sum[3]) / n
-                let un = alpha > 0 ? 1 / alpha : 0  // un-premultiply for setFillColor
-                ctx.setFillColor(CGColor(srgbRed: CGFloat(sum[0]) / n * un, green: CGFloat(sum[1]) / n * un,
-                                         blue: CGFloat(sum[2]) / n * un, alpha: alpha))
-                ctx.fill(CGRect(x: r.minX + CGFloat(bx), y: r.minY + CGFloat(by), width: CGFloat(bw), height: CGFloat(bh)))
+        guard let grid = BlockGrid(image, rect) else { return }
+        for row in 0..<grid.rows {
+            for col in 0..<grid.cols {
+                let i = (row * grid.cols + col) * 4
+                let alpha = CGFloat(grid.cells[i + 3]) / 255
+                let un = alpha > 0 ? 1 / (alpha * 255) : 0  // un-premultiply for setFillColor
+                ctx.setFillColor(CGColor(srgbRed: CGFloat(grid.cells[i]) * un, green: CGFloat(grid.cells[i + 1]) * un,
+                                         blue: CGFloat(grid.cells[i + 2]) * un, alpha: alpha))
+                ctx.fill(grid.cellRect(col, row))
             }
         }
+    }
+
+    /// A blur that is as safe as `pixelate`: it smooths the block averages, never the real
+    /// pixels. A Gaussian blur over the original keeps enough of text's shape to read it
+    /// back (or to brute-force a short number); this only has one colour per block to work
+    /// with, so it looks soft and still hides everything.
+    private static func blur(_ image: CGImage, _ rect: CGRect, _ ctx: CGContext) {
+        guard let grid = BlockGrid(image, rect), let small = grid.image() else { return }
+        let block = CGFloat(grid.block)
+        let covered = CGRect(x: 0, y: 0, width: CGFloat(grid.cols) * block, height: CGFloat(grid.rows) * block)
+        let soft = CIImage(cgImage: small)
+            .samplingLinear()
+            .transformed(by: CGAffineTransform(scaleX: block, y: block))
+            .clampedToExtent()  // edges blur into themselves, not into transparent black
+            .applyingGaussianBlur(sigma: Double(block) * 0.55)
+        guard let out = ciContext.createCGImage(soft, from: covered, format: .RGBA8,
+                                                colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!) else { return }
+        ctx.saveGState()
+        ctx.clip(to: grid.rect)
+        drawImage(out, in: CGRect(origin: grid.rect.origin, size: covered.size), ctx)
+        ctx.restoreGState()
+    }
+
+    private static let ciContext = CIContext(options: [.cacheIntermediates: false])
+
+    /// Dims the whole image except the spotlit rectangles, in one layer — two spotlights
+    /// each leave the other bright instead of dimming it.
+    private static func spotlight(_ holes: [CGRect], size: CGSize, _ ctx: CGContext) {
+        guard !holes.isEmpty else { return }
+        ctx.saveGState()
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        ctx.setFillColor(CGColor(gray: 0, alpha: 0.55))
+        ctx.fill(CGRect(origin: .zero, size: size))
+        ctx.setBlendMode(.clear)
+        for hole in holes {
+            let radius = min(16, min(hole.width, hole.height) * 0.1)
+            ctx.addPath(CGPath(roundedRect: hole, cornerWidth: radius, cornerHeight: radius, transform: nil))
+            ctx.fillPath()
+        }
+        ctx.endTransparencyLayer()
+        ctx.restoreGState()
     }
 
     static func pixelBlockSize(for rect: CGRect) -> CGFloat {
@@ -270,6 +301,67 @@ public enum Renderer {
         ctx.scaleBy(x: 1, y: -1)
         ctx.draw(image, in: CGRect(origin: .zero, size: rect.size))
         ctx.restoreGState()
+    }
+}
+
+/// The exact per-block averages of one area of a screenshot — the only thing pixelate and
+/// blur ever draw, so neither can leak a real pixel.
+struct BlockGrid {
+    let rect: CGRect
+    let block: Int
+    let cols: Int, rows: Int
+    /// Premultiplied sRGB RGBA, row 0 on top.
+    let cells: [UInt8]
+
+    init?(_ image: CGImage, _ area: CGRect) {
+        let r = area.integral.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        guard !r.isEmpty, let source = image.cropping(to: r) else { return nil }
+        let (w, h) = (source.width, source.height)
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        guard let bitmap = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                     space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        bitmap.draw(source, in: CGRect(x: 0, y: 0, width: w, height: h))  // row 0 of the buffer = top
+
+        let block = Int(Renderer.pixelBlockSize(for: r))
+        let cols = (w + block - 1) / block, rows = (h + block - 1) / block
+        var cells = [UInt8](repeating: 0, count: cols * rows * 4)
+        for row in 0..<rows {
+            for col in 0..<cols {
+                let bx = col * block, by = row * block
+                let bw = min(block, w - bx), bh = min(block, h - by)
+                var sum = [Int](repeating: 0, count: 4)
+                for y in by..<(by + bh) {
+                    var i = (y * w + bx) * 4
+                    for _ in 0..<bw {
+                        for c in 0..<4 { sum[c] += Int(pixels[i + c]) }
+                        i += 4
+                    }
+                }
+                let n = bw * bh, o = (row * cols + col) * 4
+                for c in 0..<4 { cells[o + c] = UInt8((sum[c] + n / 2) / n) }
+            }
+        }
+        self.rect = r
+        self.block = block
+        self.cols = cols
+        self.rows = rows
+        self.cells = cells
+    }
+
+    /// Cell `(col, row)` in image pixels; the last column and row may be narrower.
+    func cellRect(_ col: Int, _ row: Int) -> CGRect {
+        let x = rect.minX + CGFloat(col * block), y = rect.minY + CGFloat(row * block)
+        return CGRect(x: x, y: y, width: min(CGFloat(block), rect.maxX - x), height: min(CGFloat(block), rect.maxY - y))
+    }
+
+    /// One pixel per cell.
+    func image() -> CGImage? {
+        guard let provider = CGDataProvider(data: Data(cells) as CFData) else { return nil }
+        return CGImage(width: cols, height: rows, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: cols * 4,
+                       space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     }
 }
 

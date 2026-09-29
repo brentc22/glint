@@ -2,7 +2,7 @@ import AppKit
 import GlintCore
 
 enum Tool: String, CaseIterable, Identifiable {
-    case select, arrow, rectangle, ellipse, line, pen, highlight, text, counter, pixelate, redact, crop
+    case select, arrow, rectangle, ellipse, line, pen, highlight, spotlight, text, counter, blur, pixelate, redact, crop
     var id: String { rawValue }
 
     var symbol: String {
@@ -14,8 +14,10 @@ enum Tool: String, CaseIterable, Identifiable {
         case .line: "line.diagonal"
         case .pen: "scribble"
         case .highlight: "highlighter"
+        case .spotlight: "light.max"
         case .text: "textformat"
         case .counter: "1.circle"
+        case .blur: "drop.halffull"
         case .pixelate: "checkerboard.rectangle"
         case .redact: "rectangle.fill"
         case .crop: "crop"
@@ -26,16 +28,17 @@ enum Tool: String, CaseIterable, Identifiable {
     var key: Character {
         switch self {
         case .select: "v"; case .arrow: "a"; case .rectangle: "r"; case .ellipse: "o"; case .line: "l"
-        case .pen: "d"; case .highlight: "h"; case .text: "t"; case .counter: "n"; case .pixelate: "p"
-        case .redact: "b"; case .crop: "c"
+        case .pen: "d"; case .highlight: "h"; case .spotlight: "s"; case .text: "t"; case .counter: "n"
+        case .blur: "u"; case .pixelate: "p"; case .redact: "b"; case .crop: "c"
         }
     }
 
     var title: String {
         switch self {
         case .select: "Select"; case .arrow: "Arrow"; case .rectangle: "Rectangle"; case .ellipse: "Ellipse"
-        case .line: "Line"; case .pen: "Pen"; case .highlight: "Highlight"; case .text: "Text"
-        case .counter: "Step counter"; case .pixelate: "Pixelate"; case .redact: "Black out"; case .crop: "Crop"
+        case .line: "Line"; case .pen: "Pen"; case .highlight: "Highlight"; case .spotlight: "Spotlight"
+        case .text: "Text"; case .counter: "Step counter"; case .blur: "Blur"; case .pixelate: "Pixelate"
+        case .redact: "Black out"; case .crop: "Crop"
         }
     }
 }
@@ -69,7 +72,7 @@ final class EditorModel: ObservableObject {
     func mutate(_ change: (inout Document) -> Void) { change(&document) }
 
     func add(_ kind: Annotation.Kind) {
-        let annotation = Annotation(kind, color: kind.isRedaction ? .black : color, lineWidth: lineWidth)
+        let annotation = Annotation(kind, color: kind.hasOwnStyle ? .black : color, lineWidth: lineWidth)
         mutate { $0.add(annotation) }
         selectedID = annotation.id
     }
@@ -89,7 +92,7 @@ final class EditorModel: ObservableObject {
     }
 
     private func restyleSelection() {
-        guard let id = selectedID, var a = document.annotations.first(where: { $0.id == id }), !a.kind.isRedaction else { return }
+        guard let id = selectedID, var a = document.annotations.first(where: { $0.id == id }), !a.kind.hasOwnStyle else { return }
         a.color = color
         a.lineWidth = lineWidth
         if case let .text(s, o, _) = a.kind { a.kind = .text(s, at: o, size: textSize) }
@@ -103,10 +106,12 @@ final class EditorModel: ObservableObject {
         isRedacting = true
         defer { isRedacting = false }
         let regions = await TextRecognizer.sensitiveRegions(in: document.image, kinds: Prefs.redactKinds, customTerms: Prefs.customTerms)
-        let existing = document.annotations.compactMap { if case let .pixelate(r) = $0.kind { r } else { nil } }
+        let existing = document.annotations.compactMap { a -> CGRect? in
+            switch a.kind { case let .pixelate(r), let .blur(r): r; default: nil }
+        }
         let new = regions.filter { !existing.contains($0) }
         guard !new.isEmpty else { return 0 }
-        mutate { doc in doc.apply { state in state.annotations += new.map { Annotation(.pixelate($0)) } } }
+        mutate { doc in doc.apply { state in state.annotations += new.map { Annotation(Prefs.redactStyle.kind($0)) } } }
         return new.count
     }
 
@@ -116,7 +121,8 @@ final class EditorModel: ObservableObject {
 }
 
 extension Annotation.Kind {
-    var isRedaction: Bool {
-        switch self { case .pixelate, .filledRectangle: true; default: false }
+    /// Marks that ignore the color and stroke pickers: their look is the point.
+    var hasOwnStyle: Bool {
+        switch self { case .pixelate, .blur, .filledRectangle, .spotlight: true; default: false }
     }
 }

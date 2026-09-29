@@ -389,7 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static func redactInPlace(_ capture: Capture) async -> Int {
         let regions = await TextRecognizer.sensitiveRegions(in: capture.image, kinds: Prefs.redactKinds, customTerms: Prefs.customTerms)
         guard !regions.isEmpty,
-              let redacted = Renderer.render(capture.image, annotations: regions.map { Annotation(.pixelate($0)) })
+              let redacted = Renderer.render(capture.image, annotations: regions.map { Annotation(Prefs.redactStyle.kind($0)) })
         else { return 0 }
         capture.update(redacted)
         return regions.count

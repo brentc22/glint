@@ -135,7 +135,7 @@ final class CanvasView: NSView, NSTextFieldDelegate {
             }
         case let .shape(start, current):
             if let kind = shape(from: start, to: current) {
-                list.append(Annotation(kind, color: kind.isRedaction ? .black : model.color, lineWidth: model.lineWidth))
+                list.append(Annotation(kind, color: kind.hasOwnStyle ? .black : model.color, lineWidth: model.lineWidth))
             }
         case let .pen(points):
             list.append(Annotation(.freehand(points), color: model.color, lineWidth: model.lineWidth))
@@ -161,7 +161,7 @@ final class CanvasView: NSView, NSTextFieldDelegate {
                 b = CGPoint(x: a.x + cos(angle) * length, y: a.y + sin(angle) * length)
             }
             return model.tool == .arrow ? .arrow(from: a, to: b) : .line(from: a, to: b)
-        case .rectangle, .ellipse, .highlight, .pixelate, .redact:
+        case .rectangle, .ellipse, .highlight, .spotlight, .blur, .pixelate, .redact:
             if shift {
                 let side = max(abs(raw.x - a.x), abs(raw.y - a.y))
                 b = CGPoint(x: a.x + (raw.x < a.x ? -side : side), y: a.y + (raw.y < a.y ? -side : side))
@@ -171,6 +171,8 @@ final class CanvasView: NSView, NSTextFieldDelegate {
             case .rectangle: return .rectangle(r)
             case .ellipse: return .ellipse(r)
             case .highlight: return .highlight(r)
+            case .spotlight: return .spotlight(r)
+            case .blur: return .blur(r)
             case .pixelate: return .pixelate(r)
             default: return .filledRectangle(r)
             }

@@ -45,6 +45,7 @@ final class SettingsModel: ObservableObject {
     // Redaction
     @Published var autoRedact = Prefs.autoRedact { didSet { d.set(autoRedact, forKey: "autoRedact") } }
     @Published var redactKinds = Prefs.redactKinds { didSet { d.set(redactKinds.map(\.rawValue), forKey: "redactKinds") } }
+    @Published var redactStyle = Prefs.redactStyle { didSet { d.set(redactStyle.rawValue, forKey: "redactStyle") } }
     // Motion
     @Published var motionEnabled = Prefs.motionEnabled { didSet { d.set(motionEnabled, forKey: "motionEnabled") } }
     @Published var motionSpeed = Prefs.motionSpeed { didSet { d.set(motionSpeed.rawValue, forKey: "motionSpeed") } }
@@ -311,8 +312,13 @@ private struct RedactionPane: View {
         Form {
             Section {
                 Toggle("Redact every screenshot automatically", isOn: $model.autoRedact)
+                Picker("Cover with", selection: $model.redactStyle) {
+                    Text("Pixels").tag(Prefs.RedactStyle.pixelate)
+                    Text("Blur").tag(Prefs.RedactStyle.blur)
+                }
+                .pickerStyle(.segmented)
             } footer: {
-                note("Off: use the Redact button in the overlay or editor when you need it.")
+                note("Off: use the Redact button in the overlay or editor when you need it. Glint's blur is made from block averages, like the pixels, so it can't be sharpened back.")
             }
             Section("Look for") {
                 ForEach(SensitiveMatcher.Kind.allCases, id: \.self) { kind in

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import GlintCore
 
@@ -6,6 +7,11 @@ import GlintCore
 enum Prefs {
     enum Corner: String, CaseIterable { case left, right }
     enum Format: String, CaseIterable { case png, jpeg }
+    /// How Redact covers what it finds. Both draw only block averages, so both are safe.
+    enum RedactStyle: String, CaseIterable {
+        case pixelate, blur
+        func kind(_ rect: CGRect) -> Annotation.Kind { self == .blur ? .blur(rect) : .pixelate(rect) }
+    }
     /// How long motion takes: scales every spring's response and every fade.
     enum MotionSpeed: String, CaseIterable {
         case relaxed, standard, snappy
@@ -37,6 +43,7 @@ enum Prefs {
             "autoRedact": false,
             "redactKinds": SensitiveMatcher.Kind.allCases.map(\.rawValue),
             "customTerms": "",
+            "redactStyle": RedactStyle.pixelate.rawValue,
             "motionEnabled": true,
             "motionSpeed": MotionSpeed.standard.rawValue,
             "motionBounce": MotionBounce.subtle.rawValue,
@@ -67,6 +74,7 @@ enum Prefs {
     static var motionEnabled: Bool { d.bool(forKey: "motionEnabled") }
     static var motionSpeed: MotionSpeed { MotionSpeed(rawValue: d.string(forKey: "motionSpeed") ?? "") ?? .standard }
     static var motionBounce: MotionBounce { MotionBounce(rawValue: d.string(forKey: "motionBounce") ?? "") ?? .subtle }
+    static var redactStyle: RedactStyle { RedactStyle(rawValue: d.string(forKey: "redactStyle") ?? "") ?? .pixelate }
     static var customTerms: [String] {
         (d.string(forKey: "customTerms") ?? "").split(whereSeparator: \.isNewline).map(String.init)
     }
