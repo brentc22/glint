@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import AppKit
 @preconcurrency import ScreenCaptureKit
 import GlintCore
