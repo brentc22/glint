@@ -4,7 +4,7 @@ import Security
 import UniformTypeIdentifiers
 
 /// Uploads a capture to your own S3-compatible bucket (Cloudflare R2, S3, B2, MinIO) and
-/// copies a link to it. Off until you fill in Settings → Upload; until then Glint makes
+/// copies a link to it. Off until you fill in Settings → More → Share links; until then Glint makes
 /// no network requests at all. The secret key lives in the Keychain, not in preferences.
 @MainActor
 enum Uploader {
@@ -18,11 +18,12 @@ enum Uploader {
     }
 
     enum UploadError: LocalizedError {
-        case notConfigured, badEndpoint, server(Int, String)
+        case notConfigured, badEndpoint, badPublicURL, server(Int, String)
         var errorDescription: String? {
             switch self {
-            case .notConfigured: "Set up uploading in Settings → Upload first."
-            case .badEndpoint: "The endpoint in Settings → Upload must be an https:// address."
+            case .notConfigured: "Set up share links first: Settings → More → Share links."
+            case .badEndpoint: "The endpoint under Settings → More → Share links must be an https:// address."
+            case .badPublicURL: "Uploaded, but “Links start with” under Settings → More → Share links isn't a valid address."
             case let .server(code, message): "Upload failed (\(code))\(message.isEmpty ? "" : ": \(message)")"
             }
         }
@@ -101,7 +102,8 @@ enum Uploader {
             throw UploadError.server(status, message)
         }
         let publicBase = c.publicURL.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
-        return URL(string: "\(publicBase)/\(key)")!
+        guard let link = URL(string: "\(publicBase)/\(key)"), link.scheme != nil else { throw UploadError.badPublicURL }
+        return link
     }
 }
 

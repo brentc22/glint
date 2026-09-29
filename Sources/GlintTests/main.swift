@@ -161,6 +161,13 @@ T.test("spotlight dims outside its box, and two spotlights don't dim each other"
     T.equal(pixel(arrowOnTop, 310, 110)[0], 255, "marks stay bright over the dim, whatever their order:")
     let redacted = Renderer.render(white, annotations: spots + [Annotation(.pixelate(CGRect(x: 300, y: 100, width: 40, height: 40)))])!
     T.expect(pixel(redacted, 310, 110)[0] < 140, "a redaction outside the spotlight is dimmed too")
+    let covered = Renderer.render(white, annotations: [Annotation(.text("secret", at: CGPoint(x: 200, y: 20), size: 40), color: .red),
+                                                       Annotation(.filledRectangle(CGRect(x: 190, y: 10, width: 200, height: 70)), color: .black)])!
+    T.expect(pixel(covered, 220, 40)[0] < 40, "a black-out drawn over a label still hides it")
+    let clear = Renderer.draw(size: CGSize(width: 100, height: 100)) { $0.setFillColor(.white); $0.fill(CGRect(x: 20, y: 20, width: 60, height: 60)) }!
+    let lit = Renderer.render(clear, annotations: [Annotation(.spotlight(CGRect(x: 30, y: 30, width: 20, height: 20)))])!
+    T.equal(pixel(lit, 5, 5)[3], 0, "transparent margin stays transparent:")
+    T.expect(pixel(lit, 70, 70)[0] < 140, "the window itself is dimmed")
 }
 T.test("crop and backdrop change the output size") {
     let cropped = Renderer.render(white, annotations: [], crop: CGRect(x: 10, y: 10, width: 100, height: 50))!

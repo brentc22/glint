@@ -26,14 +26,22 @@ public enum Renderer {
     /// Draws every annotation into an existing top-left-origin context — the editor
     /// canvas uses this so what you see while editing is exactly what gets exported.
     public static func draw(_ annotations: [Annotation], over image: CGImage, in ctx: CGContext) {
-        // Three layers: what changes the screenshot itself (pixelate, blur, black-out,
-        // highlight), then the spotlight dim over all of that, then the marks on top — so a
-        // redaction outside the spotlight is dimmed like the rest, and arrows stay bright.
-        let (inImage, onTop) = (annotations.filter(\.kind.altersImage), annotations.filter { !$0.kind.altersImage })
-        for annotation in inImage { draw(annotation, over: image, ctx) }
-        spotlight(annotations.compactMap { if case let .spotlight(r) = $0.kind { r } else { nil } },
-                  size: CGSize(width: image.width, height: image.height), ctx)
-        for annotation in onTop { draw(annotation, over: image, ctx) }
+        // The spotlight dim goes first, so marks stay bright on top of it, and everything
+        // else keeps the order it was drawn in (a black-out over a label still hides it).
+        // Pixelate and blur paint real screenshot pixels, which would punch a bright hole
+        // in the dim, so their area gets dimmed again right after.
+        let dim = spotlightDim(annotations.compactMap { if case let .spotlight(r) = $0.kind { r } else { nil } },
+                               size: CGSize(width: image.width, height: image.height))
+        if let dim { fillDim(dim, ctx) }
+        for annotation in annotations {
+            draw(annotation, over: image, ctx)
+            if let dim, annotation.kind.paintsScreenshot {
+                ctx.saveGState()
+                ctx.clip(to: annotation.bounds)
+                fillDim(dim, ctx)
+                ctx.restoreGState()
+            }
+        }
     }
 
     // MARK: - Annotations
@@ -162,21 +170,25 @@ public enum Renderer {
 
     private static let ciContext = CIContext(options: [.cacheIntermediates: false])
 
-    /// Dims the whole image except the spotlit rectangles, in one layer — two spotlights
-    /// each leave the other bright instead of dimming it.
-    private static func spotlight(_ holes: [CGRect], size: CGSize, _ ctx: CGContext) {
-        guard !holes.isEmpty else { return }
-        ctx.saveGState()
-        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
-        ctx.setFillColor(CGColor(gray: 0, alpha: 0.55))
-        ctx.fill(CGRect(origin: .zero, size: size))
-        ctx.setBlendMode(.clear)
-        for hole in holes {
+    /// The area a spotlight dims: the image minus the union of the spotlit rectangles, so
+    /// two spotlights each leave the other bright instead of dimming it.
+    private static func spotlightDim(_ holes: [CGRect], size: CGSize) -> CGPath? {
+        guard !holes.isEmpty else { return nil }
+        let lit = holes.reduce(CGPath(rect: .null, transform: nil)) { union, hole in
             let radius = min(16, min(hole.width, hole.height) * 0.1)
-            ctx.addPath(CGPath(roundedRect: hole, cornerWidth: radius, cornerHeight: radius, transform: nil))
-            ctx.fillPath()
+            return union.union(CGPath(roundedRect: hole, cornerWidth: radius, cornerHeight: radius, transform: nil))
         }
-        ctx.endTransparencyLayer()
+        return CGPath(rect: CGRect(origin: .zero, size: size), transform: nil).subtracting(lit)
+    }
+
+    /// Source-atop: only where the image has pixels, so a window's transparent shadow
+    /// margin and rounded corners stay transparent.
+    private static func fillDim(_ dim: CGPath, _ ctx: CGContext) {
+        ctx.saveGState()
+        ctx.setBlendMode(.sourceAtop)
+        ctx.setFillColor(CGColor(gray: 0, alpha: 0.55))
+        ctx.addPath(dim)
+        ctx.fillPath()
         ctx.restoreGState()
     }
 
@@ -370,8 +382,8 @@ struct BlockGrid {
 }
 
 extension Annotation.Kind {
-    var altersImage: Bool {
-        switch self { case .pixelate, .blur, .filledRectangle, .highlight: true; default: false }
+    var paintsScreenshot: Bool {
+        switch self { case .pixelate, .blur: true; default: false }
     }
 }
 

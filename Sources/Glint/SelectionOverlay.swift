@@ -341,6 +341,9 @@ private final class SelectionView: NSView {
         defer { dragStart = nil; dragCurrent = nil }
         if let rect = selection, rect.width > 3, rect.height > 3 {
             overlay.finish(.area(shot, rect))
+        } else if SelectionOverlay.shape != .free {
+            // With a ratio picked there's no window highlight, so a click takes nothing.
+            needsDisplay = true
         } else if let window = hoveredWindow, overlay.allowsWindowMode {
             // A click without a drag takes the window under the cursor, as it is on its own:
             // uncovered, with its shadow and transparent corners. Drag for an area, click for

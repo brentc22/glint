@@ -23,10 +23,14 @@ final class Recorder: NSObject, SCStreamOutput, @unchecked Sendable {
     private let systemAudio: AVAssetWriterInput?
     private let microphone: AVAssetWriterInput?
     private var started = false
-    /// Paused time so far; every later buffer is moved back by this much, so the video
-    /// runs on without a gap.
-    private var offset = CMTime.zero
+    /// Finished pauses and the one running, in host time. A buffer is judged by when it
+    /// was *captured*, not when it arrives: one taken during a pause is dropped even if it
+    /// shows up after Resume, and every later one moves back by the pauses before it, so
+    /// the video runs on without a gap.
+    private var pauses: [CMTimeRange] = []
     private var pausedAt: CMTime?
+    /// Last time written per input: AVAssetWriter fails the whole file on a step back.
+    private var last: [ObjectIdentifier: CMTime] = [:]
     let url: URL
 
     /// Two audio tracks play as one only in some players; `stop()` mixes them down.
@@ -103,19 +107,34 @@ final class Recorder: NSObject, SCStreamOutput, @unchecked Sendable {
     }
 
     func pause() {
-        queue.async { if self.pausedAt == nil { self.pausedAt = Self.now } }
+        let now = Self.now
+        queue.async { if self.pausedAt == nil { self.pausedAt = now } }
     }
 
     func resume() {
+        let now = Self.now
         queue.async {
             guard let at = self.pausedAt else { return }
-            self.offset = self.offset + (Self.now - at)
+            self.pauses.append(CMTimeRange(start: at, end: now))
             self.pausedAt = nil
         }
     }
 
-    /// Stops and finishes the file; returns once the MP4 is complete on disk.
-    func stop() async throws -> URL {
+    /// How far to move a buffer captured at `time` back, or nil when it was captured while paused.
+    private func offset(at time: CMTime) -> CMTime? {
+        if let pausedAt, time >= pausedAt { return nil }
+        var offset = CMTime.zero
+        for pause in pauses {
+            if time >= pause.end { offset = offset + pause.duration } else if time >= pause.start { return nil }
+        }
+        return offset
+    }
+
+    private var paused: CMTime { pauses.reduce(.zero) { $0 + $1.duration } }
+
+    /// Stops and finishes the file; returns once the MP4 is complete on disk. `mixdown`:
+    /// merge system audio and microphone into one track (not worth it for a cancelled take).
+    func stop(mixdown: Bool = true) async throws -> URL {
         try? await stream.stopCapture()
         let hadFrames: Bool = queue.sync { started }
         guard hadFrames else {
@@ -128,24 +147,25 @@ final class Recorder: NSObject, SCStreamOutput, @unchecked Sendable {
         // Frame timestamps use the host clock, so "now" is on the same timeline.
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             queue.async {
-                let end = (self.pausedAt ?? Self.now) - self.offset
+                let end = (self.pausedAt ?? Self.now) - self.paused
                 self.writer.endSession(atSourceTime: end)
                 [self.video, self.systemAudio, self.microphone].compactMap { $0 }.forEach { $0.markAsFinished() }
                 self.writer.finishWriting { done.resume() }
             }
         }
         if let error = writer.error { throw error }
-        if needsMixdown { try await AudioMixdown.run(url) }
+        // A failed mixdown still leaves a good two-track file; better that than no recording.
+        if mixdown, needsMixdown { try? await AudioMixdown.run(url) }
         return url
     }
 
     private static var now: CMTime { CMClockGetTime(CMClockGetHostTimeClock()) }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer buffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard buffer.isValid, pausedAt == nil else { return }
+        guard buffer.isValid else { return }
         switch type {
         case .screen:
-            guard Self.isCompleteFrame(buffer) else { return }
+            guard Self.isCompleteFrame(buffer), offset(at: buffer.presentationTimeStamp) != nil else { return }
             if !started {
                 guard writer.startWriting() else { return }
                 writer.startSession(atSourceTime: buffer.presentationTimeStamp)
@@ -161,7 +181,11 @@ final class Recorder: NSObject, SCStreamOutput, @unchecked Sendable {
     }
 
     private func append(_ buffer: CMSampleBuffer, to input: AVAssetWriterInput) {
-        guard input.isReadyForMoreMediaData, let shifted = Self.shift(buffer, by: offset) else { return }
+        guard input.isReadyForMoreMediaData, let offset = offset(at: buffer.presentationTimeStamp),
+              let shifted = Self.shift(buffer, by: offset) else { return }
+        let time = shifted.presentationTimeStamp, key = ObjectIdentifier(input)
+        if let previous = last[key], time <= previous { return }
+        last[key] = time
         input.append(shifted)
     }
 
@@ -210,6 +234,7 @@ enum AudioMixdown {
         reader.add(audioOut)
 
         let temp = url.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: temp) }  // gone already when it replaced the original
         let writer = try AVAssetWriter(outputURL: temp, fileType: .mp4)
         let videoIn = AVAssetWriterInput(mediaType: .video, outputSettings: nil, sourceFormatHint: hint)
         let audioIn = AVAssetWriterInput(mediaType: .audio, outputSettings: [
@@ -228,7 +253,6 @@ enum AudioMixdown {
         _ = await (v, a)
         await writer.finishWriting()
         guard writer.status == .completed, reader.status == .completed else {
-            try? FileManager.default.removeItem(at: temp)
             throw writer.error ?? reader.error ?? CaptureError.nothingRecorded
         }
         _ = try FileManager.default.replaceItemAt(url, withItemAt: temp)

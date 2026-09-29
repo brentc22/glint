@@ -50,14 +50,17 @@ final class RecordingSession: NSObject {
                     options.microphone = false
                     Toast.show("Recording without the microphone: allow it in Privacy & Security", symbol: "mic.slash.fill")
                 }
+                // Cancel can come while a permission prompt is up; finishUp has run by then.
+                guard !stopping else { return }
                 await makeOverlays()
+                guard !stopping else { return closeOverlays() }
                 options.keep = Set(overlays.map(\.windowID))
                 try FileManager.default.createDirectory(at: Prefs.saveFolder, withIntermediateDirectories: true)
                 let url = FileNaming.unique(FileNaming.name(prefix: Prefs.filenamePrefix, ext: "mp4"), in: Prefs.saveFolder)
                 let recorder = try await Recorder(screen: screen, rect: rect, to: url, options: options)
                 try await recorder.start()
                 guard !stopping else {
-                    _ = try? await recorder.stop()
+                    _ = try? await recorder.stop(mixdown: false)
                     try? FileManager.default.removeItem(at: url)
                     return
                 }
@@ -87,7 +90,9 @@ final class RecordingSession: NSObject {
             overlays.append(KeystrokeHUD(area: area))
         }
         if Prefs.recordWebcam {
-            if await WebcamBubble.requestPermission(), let bubble = WebcamBubble(area: area) {
+            let allowed = await WebcamBubble.requestPermission()
+            if stopping { return }  // nothing shown yet, nothing to clean up
+            if allowed, let bubble = WebcamBubble(area: area) {
                 overlays.append(bubble)
             } else {
                 Toast.show("No camera, or Glint isn't allowed to use it", symbol: "video.slash.fill")
@@ -131,7 +136,7 @@ final class RecordingSession: NSObject {
         Task {
             guard let recorder else { return finishUp(nil) }
             do {
-                let url = try await recorder.stop()
+                let url = try await recorder.stop(mixdown: keep)
                 guard keep else {
                     try? FileManager.default.removeItem(at: url)
                     return finishUp(nil)
@@ -149,10 +154,14 @@ final class RecordingSession: NSObject {
         finishUp(nil)
     }
 
-    private func finishUp(_ capture: Capture?) {
-        timer?.invalidate()
+    private func closeOverlays() {
         overlays.forEach { $0.close() }
         overlays.removeAll()
+    }
+
+    private func finishUp(_ capture: Capture?) {
+        timer?.invalidate()
+        closeOverlays()
         chrome.close()
         completion(capture)
     }
@@ -163,10 +172,10 @@ final class RecordingSession: NSObject {
 enum GIFExport {
     static func make(from video: URL) async throws -> URL {
         let asset = AVURLAsset(url: video)
-        // The video track, not the asset: with sound, the audio can run a few ms longer,
-        // and a frame asked for past the last picture fails.
-        guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw CaptureError.nothingRecorded }
-        let duration = try await track.load(.timeRange).duration.seconds
+        // The whole recording's length: a still screen gives one frame that lasts until Stop,
+        // so the video track itself can be a few ms long. Times past the last picture (or
+        // past the video, when the audio runs a little longer) hold the previous frame.
+        let duration = try await asset.load(.duration).seconds
         let generator = AVAssetImageGenerator(asset: asset)
         generator.maximumSize = CGSize(width: 960, height: 960)
         let fps = 12.0

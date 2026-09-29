@@ -87,7 +87,9 @@ final class HistoryModel: ObservableObject {
     func reload() {
         let folder = Prefs.saveFolder
         let keys: [URLResourceKey] = [.contentModificationDateKey]
-        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys)) ?? []
+        // Hidden files are Glint's own half-written trims and mixdowns.
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys,
+                                                                  options: .skipsHiddenFiles)) ?? []
         items = files
             .filter { Self.types.contains($0.pathExtension.lowercased()) }
             .map { HistoryItem(url: $0, modified: (try? $0.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast) }
@@ -114,14 +116,17 @@ final class HistoryModel: ObservableObject {
     /// Reads the text of every image that hasn't been read yet, newest first, one at a
     /// time in the background. Videos are searched by name only.
     private func index() {
-        indexing?.cancel()
+        let previous = indexing
+        previous?.cancel()
         let todo = items.filter { $0.isImage && text(for: $0) == nil }
         pending = todo.count
         guard !todo.isEmpty else { return }
         indexing = Task {
+            _ = await previous?.value  // one OCR at a time, and the old run can't touch `pending` after this
             for item in todo {
                 guard !Task.isCancelled else { return }
                 let text = await Self.read(item.url)
+                guard !Task.isCancelled else { return }  // a newer run owns the count now
                 texts[HistorySearch.key(path: item.url.path, modified: item.modified)] = text
                 pending -= 1
                 if pending % 10 == 0 { Self.saveCache(texts) }

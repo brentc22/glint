@@ -75,6 +75,7 @@ final class TrimWindow: NSWindow, NSWindowDelegate {
             throw CaptureError.nothingRecorded
         }
         let temp = url.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: temp) }  // gone already when it replaced the original
         session.timeRange = range
         if #available(macOS 15.0, *) {
             try await session.export(to: temp, as: .mp4)
