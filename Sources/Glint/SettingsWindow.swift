@@ -60,6 +60,27 @@ final class SettingsModel: ObservableObject {
     }
     @Published var recordWebcam = Prefs.recordWebcam { didSet { d.set(recordWebcam, forKey: "recordWebcam") } }
     @Published var recordCountdown = Prefs.recordCountdown { didSet { d.set(recordCountdown, forKey: "recordCountdown") } }
+    // Upload
+    @Published var uploadEndpoint = UserDefaults.standard.string(forKey: "uploadEndpoint") ?? "" { didSet { d.set(uploadEndpoint, forKey: "uploadEndpoint") } }
+    @Published var uploadRegion = UserDefaults.standard.string(forKey: "uploadRegion") ?? "auto" { didSet { d.set(uploadRegion, forKey: "uploadRegion") } }
+    @Published var uploadBucket = UserDefaults.standard.string(forKey: "uploadBucket") ?? "" { didSet { d.set(uploadBucket, forKey: "uploadBucket") } }
+    @Published var uploadAccessKey = UserDefaults.standard.string(forKey: "uploadAccessKey") ?? "" { didSet { d.set(uploadAccessKey, forKey: "uploadAccessKey") } }
+    @Published var uploadSecret = Keychain.secret ?? "" { didSet { Keychain.secret = uploadSecret } }
+    @Published var uploadPublicURL = UserDefaults.standard.string(forKey: "uploadPublicURL") ?? "" { didSet { d.set(uploadPublicURL, forKey: "uploadPublicURL") } }
+    @Published var redactBeforeUpload = Prefs.redactBeforeUpload { didSet { d.set(redactBeforeUpload, forKey: "redactBeforeUpload") } }
+    @Published var uploadTest: String?
+
+    func testUpload() {
+        uploadTest = "Uploading a test file…"
+        Task {
+            do {
+                let url = try await Uploader.upload(Data("Glint upload test\n".utf8), ext: "txt", contentType: "text/plain")
+                uploadTest = "Works: \(url.absoluteString)"
+            } catch {
+                uploadTest = error.localizedDescription
+            }
+        }
+    }
     // Motion
     @Published var motionEnabled = Prefs.motionEnabled { didSet { d.set(motionEnabled, forKey: "motionEnabled") } }
     @Published var motionSpeed = Prefs.motionSpeed { didSet { d.set(motionSpeed.rawValue, forKey: "motionSpeed") } }
@@ -117,10 +138,11 @@ enum SettingsWindow {
                 ("Shortcuts", "keyboard", AnyView(ShortcutsPane(model: model))),
                 ("Recording", "record.circle", AnyView(RecordingPane(model: model))),
                 ("Redaction", "eye.slash", AnyView(RedactionPane(model: model))),
+                ("Upload", "icloud.and.arrow.up", AnyView(UploadPane(model: model))),
                 ("Motion", "wand.and.rays", AnyView(MotionPane(model: model))),
                 ("About", "info.circle", AnyView(AboutPane())),
             ] {
-                let host = NSHostingController(rootView: view.frame(width: 520).fixedSize(horizontal: false, vertical: true))
+                let host = NSHostingController(rootView: view.frame(width: 640).fixedSize(horizontal: false, vertical: true))
                 host.sizingOptions = .preferredContentSize
                 host.title = title  // the window title follows the selected tab
                 let item = NSTabViewItem(viewController: host)
@@ -319,6 +341,41 @@ private struct RecordingPane: View {
                 Text("In the video")
             } footer: {
                 note("Shortcuts like ⌘⇧K and keys like ↩ appear; plain typing never does, so a password typed while recording stays private. Seeing other apps' shortcuts needs Accessibility. The webcam bubble can be dragged anywhere while recording.")
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct UploadPane: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Endpoint", text: $model.uploadEndpoint, prompt: Text("https://<account>.r2.cloudflarestorage.com"))
+                TextField("Region", text: $model.uploadRegion, prompt: Text("auto"))
+                TextField("Bucket", text: $model.uploadBucket)
+                TextField("Access key ID", text: $model.uploadAccessKey)
+                SecureField("Secret access key", text: $model.uploadSecret)
+                TextField("Public link starts with", text: $model.uploadPublicURL, prompt: Text("https://shots.example.com"))
+            } header: {
+                Text("Your bucket")
+            } footer: {
+                note("Any S3-compatible storage: Cloudflare R2 (free up to 10 GB), AWS S3, Backblaze B2, MinIO. Links use random names that can't be guessed. The secret key is kept in your Keychain. Until this is filled in, Glint never touches the network.")
+            }
+            Section {
+                Toggle("Redact screenshots before uploading", isOn: $model.redactBeforeUpload)
+                LabeledContent("Check the setup") {
+                    HStack {
+                        if let result = model.uploadTest {
+                            Text(result).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
+                        }
+                        Button("Test Upload", action: model.testUpload)
+                    }
+                }
+            } footer: {
+                note("A shared link travels further than a file, so Glint hides emails, IBANs, keys and your own terms in the uploaded copy. The screenshot on your Mac stays as it is.")
             }
         }
         .formStyle(.grouped)

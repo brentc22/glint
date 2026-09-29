@@ -15,7 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         redact: { [weak self] in self?.redact($0) },
         copyText: { capture in Task { await Self.copyText(of: capture.image) } },
         makeGIF: { capture in Task { await Self.makeGIF(capture) } },
-        trim: { TrimWindow.show($0) }))
+        trim: { TrimWindow.show($0) },
+        upload: { Uploader.share($0) }))
     /// Last area selection, for "Capture Previous Area".
     private var lastArea: (display: CGDirectDisplayID, rect: CGRect)?
 

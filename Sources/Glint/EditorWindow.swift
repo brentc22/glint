@@ -45,6 +45,7 @@ final class EditorWindow: NSWindow, NSWindowDelegate {
             pin: { [weak self] in self?.pin() },
             copyText: { [weak self] in self?.copyText() },
             redact: { [weak self] in self?.redact() },
+            upload: { [weak self] in self?.upload() },
             done: { [weak self] in self?.close() })))
 
         let root = NSView()
@@ -82,6 +83,11 @@ final class EditorWindow: NSWindow, NSWindowDelegate {
         }
     }
 
+    private func upload() {
+        apply()
+        Uploader.share(model.capture)
+    }
+
     private func pin() {
         apply()
         onPin(model.capture)
@@ -117,6 +123,7 @@ struct EditorActions {
     let pin: () -> Void
     let copyText: () -> Void
     let redact: () -> Void
+    let upload: () -> Void
     let done: () -> Void
 }
 
@@ -193,6 +200,9 @@ private struct EditorToolbar: View {
             iconButton("arrow.uturn.backward", help: "Undo (⌘Z)", active: false, action: model.undo).disabled(!model.document.canUndo)
             iconButton("arrow.uturn.forward", help: "Redo (⇧⌘Z)", active: false, action: model.redo).disabled(!model.document.canRedo)
             iconButton("text.viewfinder", help: "Copy text (OCR)", active: false, action: actions.copyText)
+            if Uploader.isConfigured {
+                iconButton("link", help: "Upload and copy link", active: false, action: actions.upload)
+            }
             iconButton("pin", help: "Pin to screen", active: false, action: actions.pin)
             iconButton("square.and.arrow.down", help: "Save (⌘S)", active: false, action: actions.save)
             iconButton("doc.on.doc", help: "Copy (⌘C)", active: false, action: actions.copy)

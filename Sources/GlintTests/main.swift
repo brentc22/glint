@@ -427,6 +427,33 @@ T.test("shortcuts and special keys show, typing doesn't") {
     T.equal(Keystroke.label(keyCode: 49, characters: " ", modifiers: []), nil, "space while typing:")
 }
 
+print("S3Signer (upload)")
+T.test("matches the AWS SigV4 test suite: get-vanilla") {
+    let signer = S3Signer(accessKey: "AKIDEXAMPLE", secretKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+                          region: "us-east-1", service: "service")
+    let date = ISO8601DateFormatter().date(from: "2015-08-30T12:36:00Z")!
+    let headers = signer.sign(method: "GET", url: URL(string: "https://example.amazonaws.com/")!,
+                              payloadHash: S3Signer.sha256Hex(Data()), date: date)
+    T.equal(headers["Authorization"], "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, "
+            + "SignedHeaders=host;x-amz-date, Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31")
+}
+T.test("matches the S3 documentation example: GET object with a range") {
+    let signer = S3Signer(accessKey: "AKIAIOSFODNN7EXAMPLE", secretKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", region: "us-east-1")
+    let date = ISO8601DateFormatter().date(from: "2013-05-24T00:00:00Z")!
+    let headers = signer.sign(method: "GET", url: URL(string: "https://examplebucket.s3.amazonaws.com/test.txt")!,
+                              headers: ["Range": "bytes=0-9"], payloadHash: S3Signer.sha256Hex(Data()), date: date)
+    T.expect(headers["Authorization"]?.hasSuffix("SignedHeaders=host;range;x-amz-content-sha256;x-amz-date, "
+             + "Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41") == true, headers["Authorization"] ?? "none")
+}
+T.test("paths with spaces are encoded once") {
+    T.equal(S3Signer.canonicalPath(URL(string: "https://x.test/bucket/My%20Shot.png")!), "/bucket/My%20Shot.png")
+}
+T.test("upload keys are random and don't count up") {
+    let a = UploadKey.make(ext: "png"), b = UploadKey.make(ext: "png")
+    T.expect(a != b, "two keys differ")
+    T.expect(a.hasSuffix(".png") && a.split(separator: "/").last!.count == 20, a)
+}
+
 print("FileNaming")
 T.test("dated name and unique suffix") {
     let date = ISO8601DateFormatter().date(from: "2026-09-24T13:04:12Z")!

@@ -45,6 +45,8 @@ enum Prefs {
             "redactKinds": SensitiveMatcher.Kind.allCases.map(\.rawValue),
             "customTerms": "",
             "redactStyle": RedactStyle.pixelate.rawValue,
+            "redactBeforeUpload": true,
+            "uploadRegion": "auto",
             "recordFPS": 30,
             "recordSystemAudio": false,
             "recordMicrophone": false,
@@ -90,6 +92,7 @@ enum Prefs {
     static var motionEnabled: Bool { d.bool(forKey: "motionEnabled") }
     static var motionSpeed: MotionSpeed { MotionSpeed(rawValue: d.string(forKey: "motionSpeed") ?? "") ?? .standard }
     static var motionBounce: MotionBounce { MotionBounce(rawValue: d.string(forKey: "motionBounce") ?? "") ?? .subtle }
+    static var redactBeforeUpload: Bool { d.bool(forKey: "redactBeforeUpload") }
     static var redactStyle: RedactStyle { RedactStyle(rawValue: d.string(forKey: "redactStyle") ?? "") ?? .pixelate }
     static var customTerms: [String] {
         (d.string(forKey: "customTerms") ?? "").split(whereSeparator: \.isNewline).map(String.init)

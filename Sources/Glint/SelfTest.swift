@@ -1,5 +1,6 @@
 import AVFoundation
 import AppKit
+@preconcurrency import ScreenCaptureKit
 import GlintCore
 
 /// `Glint --self-test`: runs every capture path for real — no mouse, no UI — and exits
@@ -90,6 +91,34 @@ enum SelfTest {
         if let screen = NSScreen.main {
             await scrollingCapture(on: screen)
             await scrollingCapture(on: screen, auto: true)
+        }
+
+        // Hide desktop icons: Finder's icon windows (and widgets) go on the leave-out list.
+        if let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) {
+            let was = UserDefaults.standard.object(forKey: "hideDesktopIcons")
+            UserDefaults.standard.set(true, forKey: "hideDesktopIcons")
+            let hidden = Capturer.hidden(in: content).filter { $0.owningApplication?.processID != getpid() }
+            UserDefaults.standard.set(false, forKey: "hideDesktopIcons")
+            let shown = Capturer.hidden(in: content).filter { $0.owningApplication?.processID != getpid() }
+            UserDefaults.standard.set(was, forKey: "hideDesktopIcons")
+            let finder = hidden.filter { $0.owningApplication?.bundleIdentifier == "com.apple.finder" }.count
+            check("hide desktop icons: \(finder) Finder icon window(s), \(hidden.count - finder) widget(s) left out; none when off",
+                  finder > 0 && shown.isEmpty)
+        }
+
+        // Upload, only when a test bucket is given: GLINT_UPLOAD_TEST="endpoint bucket key secret".
+        if let spec = ProcessInfo.processInfo.environment["GLINT_UPLOAD_TEST"]?.split(separator: " ").map(String.init), spec.count == 4 {
+            let config = Uploader.Config(endpoint: spec[0], region: "us-east-1", bucket: spec[1], accessKey: spec[2],
+                                         secretKey: spec[3], publicURL: "\(spec[0])/\(spec[1])")
+            do {
+                let png = Capture.png(shots[0].image, scale: 1)
+                let link = try await Uploader.upload(png, ext: "png", contentType: "image/png", to: config)
+                check("upload: \(link.lastPathComponent), \(png.count / 1024) KB", link.pathExtension == "png")
+                var wrong = config
+                wrong.secretKey = "wrong"
+                let refused = (try? await Uploader.upload(png, ext: "png", contentType: "image/png", to: wrong)) == nil
+                check("upload with a wrong secret is refused", refused)
+            } catch { check("upload: \(error.localizedDescription)", false) }
         }
 
         // 6. OCR on a real screen.

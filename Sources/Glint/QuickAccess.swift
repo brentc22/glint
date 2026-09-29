@@ -9,6 +9,7 @@ struct CaptureActions {
     let copyText: (Capture) -> Void
     let makeGIF: (Capture) -> Void
     let trim: (Capture) -> Void
+    let upload: (Capture) -> Void
 }
 
 /// The floating thumbnails in the corner after a capture. Hover for actions, drag the
@@ -285,7 +286,7 @@ private struct QuickAccessCard: View {
                             topRight: ("play.fill", "Play", { NSWorkspace.shared.open(file) }),
                             bottom: [("folder", "Show in Finder", { NSWorkspace.shared.activateFileViewerSelecting([file]) }),
                                      ("scissors", "Trim", { actions.trim(capture) })],
-                            bottomRight: nil)
+                            bottomRight: Uploader.isConfigured ? ("link", "Upload and copy link", { actions.upload(capture) }) : nil)
                     } else {
                         controls(
                             pills: [("Copy", "doc.on.doc", { capture.copy(); flash() }),
@@ -293,7 +294,8 @@ private struct QuickAccessCard: View {
                             topLeft: ("xmark", "Close", close),
                             topRight: ("pencil.tip.crop.circle", "Annotate", { actions.edit(capture); close() }),
                             bottom: [("pin", "Pin to screen", { actions.pin(capture); close() }),
-                                     ("text.viewfinder", "Copy text (OCR)", { actions.copyText(capture) })],
+                                     ("text.viewfinder", "Copy text (OCR)", { actions.copyText(capture) })]
+                                + (Uploader.isConfigured ? [("link", "Upload and copy link", { actions.upload(capture) })] : []),
                             bottomRight: ("eye.slash", "Redact emails, IBANs, keys…", { actions.redact(capture) }))
                     }
                 }
