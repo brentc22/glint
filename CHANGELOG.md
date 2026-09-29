@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-09-29
+
+Everything CleanShot X has that Glint didn't, and a few things it doesn't.
 
 - Motion runs on real springs. Windows move on a display-link spring that keeps its speed
   when it gets a new target, so a card that's pushed twice bends instead of stopping and
