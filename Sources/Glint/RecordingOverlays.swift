@@ -11,6 +11,7 @@ protocol RecordingOverlay: AnyObject {
     func close()
 }
 
+@MainActor
 private func overlayPanel(_ rect: CGRect, clickThrough: Bool) -> NSPanel {
     let p = NSPanel(contentRect: rect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
     p.level = .statusBar

@@ -222,8 +222,9 @@ enum AudioMixdown {
             throw reader.error ?? writer.error ?? CaptureError.nothingRecorded
         }
         writer.startSession(atSourceTime: .zero)
-        async let v: Void = pump(videoOut, into: videoIn, label: "video")
-        async let a: Void = pump(audioOut, into: audioIn, label: "audio")
+        let (video, sound) = (Pump(output: videoOut, input: videoIn), Pump(output: audioOut, input: audioIn))
+        async let v: Void = pump(video, label: "video")
+        async let a: Void = pump(sound, label: "audio")
         _ = await (v, a)
         await writer.finishWriting()
         guard writer.status == .completed, reader.status == .completed else {
@@ -233,8 +234,7 @@ enum AudioMixdown {
         _ = try FileManager.default.replaceItemAt(url, withItemAt: temp)
     }
 
-    private static func pump(_ output: AVAssetReaderOutput, into input: AVAssetWriterInput, label: String) async {
-        let box = Pump(output: output, input: input)
+    private static func pump(_ box: Pump, label: String) async {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             box.input.requestMediaDataWhenReady(on: DispatchQueue(label: "glint.mixdown.\(label)")) {
                 while box.input.isReadyForMoreMediaData {

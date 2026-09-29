@@ -42,12 +42,8 @@ final class TrimWindow: NSWindow, NSWindowDelegate {
         // The player needs its item loaded before the trim bar can appear.
         Task {
             for _ in 0..<50 where !playerView.canBeginTrimming { try? await Task.sleep(for: .milliseconds(100)) }
-            playerView.beginTrimming { [weak self] result in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    if result == .okButton { self.export() } else { self.close() }
-                }
-            }
+            let result = await playerView.beginTrimming()
+            if result == .okButton { export() } else { close() }
         }
     }
 
