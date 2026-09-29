@@ -121,7 +121,8 @@ final class SettingsModel: ObservableObject {
     var sampleFilename: String { FileNaming.name(prefix: filenamePrefix, ext: format == .png ? "png" : "jpg") }
 }
 
-/// Standard macOS preferences: a toolbar of tabs, each pane sized to its content.
+/// Standard macOS preferences: a toolbar of tabs, each pane sized to its content. Kept to
+/// what most people change, in plain words; the rest waits under More.
 @MainActor
 enum SettingsWindow {
     private static var window: NSWindow?
@@ -133,16 +134,13 @@ enum SettingsWindow {
             tabs.tabStyle = .toolbar
             for (title, symbol, view) in [
                 ("General", "gearshape", AnyView(GeneralPane(model: model))),
-                ("Capture", "camera.viewfinder", AnyView(CapturePane(model: model))),
-                ("Files", "folder", AnyView(FilesPane(model: model))),
-                ("Shortcuts", "keyboard", AnyView(ShortcutsPane(model: model))),
                 ("Recording", "record.circle", AnyView(RecordingPane(model: model))),
-                ("Redaction", "eye.slash", AnyView(RedactionPane(model: model))),
-                ("Upload", "icloud.and.arrow.up", AnyView(UploadPane(model: model))),
-                ("Motion", "wand.and.rays", AnyView(MotionPane(model: model))),
+                ("Privacy", "eye.slash", AnyView(PrivacyPane(model: model))),
+                ("Shortcuts", "keyboard", AnyView(ShortcutsPane(model: model))),
+                ("More", "ellipsis.circle", AnyView(MorePane(model: model))),
                 ("About", "info.circle", AnyView(AboutPane())),
             ] {
-                let host = NSHostingController(rootView: view.frame(width: 640).fixedSize(horizontal: false, vertical: true))
+                let host = NSHostingController(rootView: view.frame(width: 520).fixedSize(horizontal: false, vertical: true))
                 host.sizingOptions = .preferredContentSize
                 host.title = title  // the window title follows the selected tab
                 let item = NSTabViewItem(viewController: host)
@@ -164,7 +162,7 @@ enum SettingsWindow {
 
 // MARK: - Panes
 
-/// Explanatory text under a section, left-aligned like System Settings.
+/// A short line under a section, left-aligned like System Settings.
 private func note(_ text: String) -> some View {
     Text(text).foregroundStyle(.secondary).multilineTextAlignment(.leading).frame(maxWidth: .infinity, alignment: .leading)
 }
@@ -174,20 +172,55 @@ private struct GeneralPane: View {
 
     var body: some View {
         Form {
-            Section {
-                Toggle("Launch Glint at login", isOn: $model.launchAtLogin)
-                Toggle("Play a sound when capturing", isOn: $model.playSound)
-            }
-            Section {
-                LabeledContent("Screen Recording") {
-                    if model.hasPermission {
-                        Label("Allowed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                    } else {
-                        Button("Open System Settings…") { Permission.openSettings() }
+            if !model.hasPermission {
+                Section {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.title2)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Glint can't see your screen yet").font(.headline)
+                            Text("Turn Glint on under Screen Recording, then open it again.").foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Open Settings") { Permission.openSettings() }.buttonStyle(.borderedProminent)
                     }
                 }
-            } footer: {
-                note("Glint needs this to see your screen. It has no network access; nothing leaves your Mac.")
+            }
+            Section("After a screenshot") {
+                Toggle("Copy it, so I can paste it anywhere", isOn: $model.copyToClipboard)
+                Toggle("Save it in a folder", isOn: $model.autoSave)
+                if model.autoSave {
+                    LabeledContent("Folder") {
+                        HStack {
+                            Text(model.saveFolder.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                                .truncationMode(.middle).lineLimit(1).foregroundStyle(.secondary)
+                            Button("Change…", action: model.chooseFolder)
+                        }
+                    }
+                }
+                Toggle("Show a small preview in the corner", isOn: $model.showQuickAccess)
+                if model.showQuickAccess {
+                    Picker("Which corner", selection: $model.quickAccessCorner) {
+                        Text("Left").tag(Prefs.Corner.left)
+                        Text("Right").tag(Prefs.Corner.right)
+                    }
+                    .pickerStyle(.segmented)
+                    Picker("Keep it for", selection: $model.quickAccessSeconds) {
+                        Text("5 sec").tag(5)
+                        Text("8 sec").tag(8)
+                        Text("15 sec").tag(15)
+                        Text("Until I close it").tag(0)
+                    }
+                }
+                Toggle("Open it for drawing right away", isOn: $model.openEditor)
+            }
+            Section("In the picture") {
+                Toggle("Show the mouse pointer", isOn: $model.showCursor)
+                Toggle("Put a shadow around windows", isOn: $model.windowShadow)
+                Toggle("Leave out desktop icons", isOn: $model.hideDesktopIcons)
+            }
+            Section {
+                Toggle("Make a camera sound", isOn: $model.playSound)
+                Toggle("Start Glint when my Mac starts", isOn: $model.launchAtLogin)
             }
         }
         .formStyle(.grouped)
@@ -195,69 +228,71 @@ private struct GeneralPane: View {
     }
 }
 
-private struct CapturePane: View {
+private struct RecordingPane: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
         Form {
-            Section("After capturing") {
-                Toggle("Copy to clipboard", isOn: $model.copyToClipboard)
-                Toggle("Save to folder", isOn: $model.autoSave)
-                Toggle("Show quick access overlay", isOn: $model.showQuickAccess)
-                if model.showQuickAccess {
-                    Picker("Position", selection: $model.quickAccessCorner) {
-                        Text("Bottom left").tag(Prefs.Corner.left)
-                        Text("Bottom right").tag(Prefs.Corner.right)
-                    }
-                    Picker("Close after", selection: $model.quickAccessSeconds) {
-                        Text("5 seconds").tag(5)
-                        Text("8 seconds").tag(8)
-                        Text("15 seconds").tag(15)
-                        Text("Never").tag(0)
-                    }
-                }
-                Toggle("Open the editor right away", isOn: $model.openEditor)
+            Section("Sound") {
+                Toggle("Record the sound from my Mac", isOn: $model.recordSystemAudio)
+                Toggle("Record my voice", isOn: $model.recordMicrophone)
+                    .disabled(!Recorder.canRecordMicrophone)
+                    .help(Recorder.canRecordMicrophone ? "Uses your microphone" : "Needs macOS 15 or later")
             }
             Section {
-                Toggle("Include the mouse pointer", isOn: $model.showCursor)
-                Toggle("Add a shadow to window captures", isOn: $model.windowShadow)
-                Toggle("Hide desktop icons and widgets", isOn: $model.hideDesktopIcons)
+                Toggle("Show where I click", isOn: $model.recordClicks)
+                Toggle("Show the shortcuts I press", isOn: $model.recordKeystrokes)
+                Toggle("Show my face (camera)", isOn: $model.recordWebcam)
             } header: {
-                Text("Screenshots")
+                Text("In the video")
             } footer: {
-                note("Only in screenshots and recordings. Your desktop stays as it is, and Finder isn't restarted.")
+                note("Normal typing is never shown, so passwords stay secret.")
+            }
+            Section {
+                Toggle("Count down 3, 2, 1 before it starts", isOn: $model.recordCountdown)
+                Picker("Smoothness", selection: $model.recordFPS) {
+                    Text("Normal").tag(30)
+                    Text("Extra smooth").tag(60)
+                }
+                .pickerStyle(.segmented)
             }
         }
         .formStyle(.grouped)
     }
 }
 
-private struct FilesPane: View {
+private struct PrivacyPane: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
         Form {
             Section {
-                LabeledContent("Save to") {
-                    HStack {
-                        Text(model.saveFolder.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                            .truncationMode(.middle).lineLimit(1).foregroundStyle(.secondary)
-                        Button("Change…", action: model.chooseFolder)
-                        Button { NSWorkspace.shared.open(model.saveFolder) } label: { Image(systemName: "arrow.up.forward.app") }
-                            .help("Show in Finder")
-                    }
-                }
-                TextField("File name starts with", text: $model.filenamePrefix)
-                LabeledContent("Example") { Text(model.sampleFilename).foregroundStyle(.secondary) }
+                Toggle("Hide private info in every screenshot", isOn: $model.autoRedact)
+            } footer: {
+                note("Emails, phone numbers, bank and card numbers, passwords and keys get covered up. It all happens on your Mac. Off: press Redact when you need it.")
             }
             Section {
-                Picker("Format", selection: $model.format) {
-                    Text("PNG — sharp, lossless").tag(Prefs.Format.png)
-                    Text("JPEG — smaller files").tag(Prefs.Format.jpeg)
+                Picker("Cover it with", selection: $model.redactStyle) {
+                    Text("Squares").tag(Prefs.RedactStyle.pixelate)
+                    Text("Blur").tag(Prefs.RedactStyle.blur)
                 }
-                Toggle("Save Retina screenshots at 1× size", isOn: $model.downscaleRetina)
-            } footer: {
-                note("1× halves width and height on Retina screens: smaller files that paste at the size you saw them.")
+                .pickerStyle(.segmented)
+                DisclosureGroup("Choose what to hide") {
+                    ForEach(SensitiveMatcher.Kind.allCases, id: \.self) { kind in
+                        Toggle(kind.title, isOn: Binding(
+                            get: { model.redactKinds.contains(kind) },
+                            set: { on in if on { model.redactKinds.insert(kind) } else { model.redactKinds.remove(kind) } }))
+                    }
+                    if model.redactKinds.contains(.custom) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Your own words, one per line")
+                            TextEditor(text: $model.customTerms)
+                                .font(.system(.body, design: .monospaced))
+                                .frame(height: 70)
+                            note("For example a customer's name. Capitals don't matter.")
+                        }
+                    }
+                }
             }
         }
         .formStyle(.grouped)
@@ -285,173 +320,85 @@ private struct ShortcutsPane: View {
                 }
             } footer: {
                 HStack(alignment: .top) {
-                    note("Click a shortcut and press new keys. ⌫ clears it, Esc cancels.")
-                    Button("Restore Defaults", action: model.resetShortcuts)
+                    note("Click a shortcut, then press the keys you want.")
+                    Button("Reset", action: model.resetShortcuts)
                 }
             }
             if !model.conflicts.isEmpty {
                 Section {
                     HStack(alignment: .top) {
-                        note("A shortcut marked ⚠︎ is taken. If it's ⇧⌘3, ⇧⌘4 or ⇧⌘5, turn off macOS's own under Keyboard Shortcuts → Screenshots.")
-                        Button("Open Keyboard Shortcuts", action: SystemShortcuts.openKeyboardShortcuts)
+                        note("⚠︎ means your Mac already uses that shortcut. Turn off the Mac's own screenshot shortcuts to let Glint have them.")
+                        Button("Show Me", action: SystemShortcuts.openKeyboardShortcuts)
                     }
                 }
             }
-            Section("While selecting") {
-                LabeledContent("Switch area / window") { Text("Space") }
-                LabeledContent("Capture the whole screen") { Text("↩") }
-                LabeledContent("Copy the color under the cursor") { Text("C") }
-                LabeledContent("Aspect ratio or fixed size") { Text("R") }
-                LabeledContent("Cancel") { Text("Esc") }
+            Section("While choosing an area") {
+                LabeledContent("Pick a window instead") { Text("Space") }
+                LabeledContent("Take the whole screen") { Text("↩") }
+                LabeledContent("Square, wide or exact size") { Text("R") }
+                LabeledContent("Copy a color") { Text("C") }
+                LabeledContent("Stop") { Text("Esc") }
             }
         }
         .formStyle(.grouped)
     }
 }
 
-private struct RecordingPane: View {
-    @ObservedObject var model: SettingsModel
-
-    var body: some View {
-        Form {
-            Section {
-                Picker("Frame rate", selection: $model.recordFPS) {
-                    Text("30 fps").tag(30)
-                    Text("60 fps").tag(60)
-                }
-                .pickerStyle(.segmented)
-                Toggle("Count down 3 seconds before recording", isOn: $model.recordCountdown)
-            }
-            Section {
-                Toggle("Record system audio", isOn: $model.recordSystemAudio)
-                Toggle("Record the microphone", isOn: $model.recordMicrophone)
-                    .disabled(!Recorder.canRecordMicrophone)
-            } header: {
-                Text("Sound")
-            } footer: {
-                note(Recorder.canRecordMicrophone
-                     ? "With both on, they're mixed into one track, so every player plays your voice. Glint's own sounds are left out."
-                     : "The microphone needs macOS 15 or later.")
-            }
-            Section {
-                Toggle("Show clicks", isOn: $model.recordClicks)
-                Toggle("Show keyboard shortcuts", isOn: $model.recordKeystrokes)
-                Toggle("Show the webcam", isOn: $model.recordWebcam)
-            } header: {
-                Text("In the video")
-            } footer: {
-                note("Shortcuts like ⌘⇧K and keys like ↩ appear; plain typing never does, so a password typed while recording stays private. Seeing other apps' shortcuts needs Accessibility. The webcam bubble can be dragged anywhere while recording.")
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
-private struct UploadPane: View {
-    @ObservedObject var model: SettingsModel
-
-    var body: some View {
-        Form {
-            Section {
-                TextField("Endpoint", text: $model.uploadEndpoint, prompt: Text("https://<account>.r2.cloudflarestorage.com"))
-                TextField("Region", text: $model.uploadRegion, prompt: Text("auto"))
-                TextField("Bucket", text: $model.uploadBucket)
-                TextField("Access key ID", text: $model.uploadAccessKey)
-                SecureField("Secret access key", text: $model.uploadSecret)
-                TextField("Public link starts with", text: $model.uploadPublicURL, prompt: Text("https://shots.example.com"))
-            } header: {
-                Text("Your bucket")
-            } footer: {
-                note("Any S3-compatible storage: Cloudflare R2 (free up to 10 GB), AWS S3, Backblaze B2, MinIO. Links use random names that can't be guessed. The secret key is kept in your Keychain. Until this is filled in, Glint never touches the network.")
-            }
-            Section {
-                Toggle("Redact screenshots before uploading", isOn: $model.redactBeforeUpload)
-                LabeledContent("Check the setup") {
-                    HStack {
-                        if let result = model.uploadTest {
-                            Text(result).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
-                        }
-                        Button("Test Upload", action: model.testUpload)
-                    }
-                }
-            } footer: {
-                note("A shared link travels further than a file, so Glint hides emails, IBANs, keys and your own terms in the uploaded copy. The screenshot on your Mac stays as it is.")
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
-private struct MotionPane: View {
+/// Everything most people never touch: files, animation, share links.
+private struct MorePane: View {
     @ObservedObject var model: SettingsModel
     private var systemReduced: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 
     var body: some View {
         Form {
-            Section {
-                Toggle("Animate windows and thumbnails", isOn: $model.motionEnabled)
-            } footer: {
-                if systemReduced {
-                    note("Reduce Motion is on in System Settings → Accessibility, so Glint only fades.")
-                } else {
-                    note("Off: things fade in and out instead of moving.")
+            Section("Files") {
+                Picker("Type", selection: $model.format) {
+                    Text("PNG, best quality").tag(Prefs.Format.png)
+                    Text("JPEG, smaller").tag(Prefs.Format.jpeg)
+                }
+                Toggle("Make files half as big", isOn: $model.downscaleRetina)
+                    .help("On sharp (Retina) screens: half the width and height")
+                TextField("Name starts with", text: $model.filenamePrefix)
+                LabeledContent("Looks like") { Text(model.sampleFilename).foregroundStyle(.secondary) }
+            }
+            Section("Animations") {
+                Toggle("Move things around smoothly", isOn: $model.motionEnabled)
+                    .disabled(systemReduced)
+                    .help(systemReduced ? "Reduce Motion is on in your Mac's settings" : "")
+                if model.motionEnabled, !systemReduced {
+                    Picker("Speed", selection: $model.motionSpeed) {
+                        Text("Calm").tag(Prefs.MotionSpeed.relaxed)
+                        Text("Normal").tag(Prefs.MotionSpeed.standard)
+                        Text("Quick").tag(Prefs.MotionSpeed.snappy)
+                    }
+                    .pickerStyle(.segmented)
+                    Picker("Bounce", selection: $model.motionBounce) {
+                        Text("None").tag(Prefs.MotionBounce.none)
+                        Text("A little").tag(Prefs.MotionBounce.subtle)
+                        Text("A lot").tag(Prefs.MotionBounce.playful)
+                    }
+                    .pickerStyle(.segmented)
                 }
             }
             Section {
-                Picker("Speed", selection: $model.motionSpeed) {
-                    Text("Relaxed").tag(Prefs.MotionSpeed.relaxed)
-                    Text("Standard").tag(Prefs.MotionSpeed.standard)
-                    Text("Snappy").tag(Prefs.MotionSpeed.snappy)
-                }
-                .pickerStyle(.segmented)
-                .disabled(!model.motionEnabled || systemReduced)
-                Picker("Bounce", selection: $model.motionBounce) {
-                    Text("None").tag(Prefs.MotionBounce.none)
-                    Text("Subtle").tag(Prefs.MotionBounce.subtle)
-                    Text("Playful").tag(Prefs.MotionBounce.playful)
-                }
-                .pickerStyle(.segmented)
-                .disabled(!model.motionEnabled || systemReduced)
-                LabeledContent("Try it") {
-                    Button("Show a toast") { Toast.show("This is how Glint moves", symbol: "sparkles") }
-                }
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
-private struct RedactionPane: View {
-    @ObservedObject var model: SettingsModel
-
-    var body: some View {
-        Form {
-            Section {
-                Toggle("Redact every screenshot automatically", isOn: $model.autoRedact)
-                Picker("Cover with", selection: $model.redactStyle) {
-                    Text("Pixels").tag(Prefs.RedactStyle.pixelate)
-                    Text("Blur").tag(Prefs.RedactStyle.blur)
-                }
-                .pickerStyle(.segmented)
-            } footer: {
-                note("Off: use the Redact button in the overlay or editor when you need it. Glint's blur is made from block averages, like the pixels, so it can't be sharpened back.")
-            }
-            Section("Look for") {
-                ForEach(SensitiveMatcher.Kind.allCases, id: \.self) { kind in
-                    Toggle(kind.title, isOn: Binding(
-                        get: { model.redactKinds.contains(kind) },
-                        set: { on in if on { model.redactKinds.insert(kind) } else { model.redactKinds.remove(kind) } }))
-                }
-            }
-            if model.redactKinds.contains(.custom) {
-                Section {
-                    TextEditor(text: $model.customTerms)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(height: 90)
-                } header: {
-                    Text("Terms to hide")
-                } footer: {
-                    note("One per line: customer names, project codes. Matches ignore case. Wrap in slashes for a regular expression, e.g. /INV-\\d+/")
+                DisclosureGroup("Share links (for experts)") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        note("Put screenshots online in your own storage (Cloudflare R2, Amazon S3…) and get a link to share. Until this is filled in, Glint never uses the internet.")
+                        TextField("Endpoint", text: $model.uploadEndpoint, prompt: Text("https://<account>.r2.cloudflarestorage.com"))
+                        TextField("Region", text: $model.uploadRegion, prompt: Text("auto"))
+                        TextField("Bucket", text: $model.uploadBucket)
+                        TextField("Access key ID", text: $model.uploadAccessKey)
+                        SecureField("Secret access key", text: $model.uploadSecret)
+                        TextField("Links start with", text: $model.uploadPublicURL, prompt: Text("https://shots.example.com"))
+                        Toggle("Hide private info in shared screenshots", isOn: $model.redactBeforeUpload)
+                        HStack {
+                            Button("Test", action: model.testUpload)
+                            if let result = model.uploadTest {
+                                Text(result).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
+                            }
+                        }
+                    }
+                    .padding(.top, 4)
                 }
             }
         }
