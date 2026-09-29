@@ -54,11 +54,11 @@ final class SessionChrome {
         let home = hud.frame
         frame.alphaValue = 0
         hud.alphaValue = 0
-        if !Motion.reduced { hud.setFrame(home.offsetBy(dx: 0, dy: -10), display: false) }
+        if !Motion.reduced { hud.setFrame(home.offsetBy(dx: 0, dy: -16), display: false) }
         frame.orderFrontRegardless()
         hud.orderFrontRegardless()
-        Motion.animate(0.36) {
-            self.hud.animator().setFrame(home, display: true)
+        Motion.move(hud, to: home.origin, spring: .arrive)
+        Motion.animate(0.24) {
             self.hud.animator().alphaValue = 1
             self.frame.animator().alphaValue = 1
         }
@@ -79,6 +79,7 @@ final class SessionChrome {
     func close() {
         frame.orderOut(nil)
         let hud = hud
+        Motion.stop(hud)
         Motion.animate(0.2, Motion.exit, { hud.animator().alphaValue = 0 }, completion: { hud.orderOut(nil) })
     }
 

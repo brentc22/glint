@@ -35,25 +35,27 @@ enum Toast {
             stack.topAnchor.constraint(equalTo: effect.topAnchor), stack.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
         ])
 
+        // Clear room around the HUD, so the pop's overshoot isn't cut off at the window edge.
+        let pad: CGFloat = 16
         let size = stack.fittingSize
         let screen = NSScreen.main?.visibleFrame ?? .zero
-        let p = NSPanel(contentRect: CGRect(x: screen.midX - size.width / 2, y: screen.minY + screen.height * 0.18,
-                                            width: size.width, height: size.height),
+        let p = NSPanel(contentRect: CGRect(x: screen.midX - size.width / 2 - pad, y: screen.minY + screen.height * 0.18 - pad,
+                                            width: size.width + 2 * pad, height: size.height + 2 * pad),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.level = .statusBar
         p.backgroundColor = .clear
         p.hasShadow = true
         p.ignoresMouseEvents = true
         // The pop scales the HUD inside a still container: AppKit owns the root view's layer.
-        let container = NSView(frame: CGRect(origin: .zero, size: size))
-        effect.frame = container.bounds
+        let container = NSView(frame: CGRect(origin: .zero, size: CGSize(width: size.width + 2 * pad, height: size.height + 2 * pad)))
+        effect.frame = container.bounds.insetBy(dx: pad, dy: pad)
         effect.autoresizingMask = [.width, .height]
         container.addSubview(effect)
         p.contentView = container
         p.alphaValue = 0
         p.orderFrontRegardless()
         panel = p
-        Motion.pop(effect, from: 0.9, duration: 0.34)
+        Motion.pop(effect, from: 0.86)
         Motion.animate(0.18) { p.animator().alphaValue = 1 }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
             if panel === p { dismiss(p, duration: 0.28) }

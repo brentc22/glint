@@ -112,6 +112,8 @@ private final class SelectionView: NSView {
     /// The window highlight as drawn: it glides toward the hovered window instead of jumping.
     private var shownWindowFrame: CGRect?
     private var glide: CADisplayLink?
+    private var lastGlide: CFTimeInterval?
+    private var glideTime: Double = 0.05
     private let hint = HintBar()
 
     init(shot: DisplayShot, windows: [PickableWindow], overlay: SelectionOverlay) {
@@ -202,15 +204,19 @@ private final class SelectionView: NSView {
         guard let target else { shownWindowFrame = nil; stopGlide(); return }
         guard let shown = shownWindowFrame, !Motion.reduced else { shownWindowFrame = target; return }
         if shown != target, glide == nil {
+            glideTime = 0.05 * Motion.pace  // read once per glide, not per frame
             glide = displayLink(target: self, selector: #selector(glideStep))
             glide?.add(to: .main, forMode: .common)
         }
     }
 
-    @objc private func glideStep() {
+    @objc private func glideStep(_ link: CADisplayLink) {
         guard let shown = shownWindowFrame, let target = showsWindowHighlight ? hoveredWindow?.frame : nil else { return stopGlide() }
-        // Close a fixed share of the gap each frame: fast at first, soft at the end.
-        let k: CGFloat = 0.3
+        // Close a share of the gap that depends on the time since the last frame, not on the frame:
+        // fast at first, soft at the end, and the same at 60 and 120 Hz.
+        let dt = min(link.targetTimestamp - (lastGlide ?? link.timestamp), 1.0 / 30)
+        lastGlide = link.targetTimestamp
+        let k = CGFloat(1 - exp(-dt / glideTime))
         let next = CGRect(x: shown.minX + (target.minX - shown.minX) * k, y: shown.minY + (target.minY - shown.minY) * k,
                           width: shown.width + (target.width - shown.width) * k, height: shown.height + (target.height - shown.height) * k)
         let done = abs(next.minX - target.minX) < 0.5 && abs(next.minY - target.minY) < 0.5
@@ -223,6 +229,7 @@ private final class SelectionView: NSView {
     private func stopGlide() {
         glide?.invalidate()
         glide = nil
+        lastGlide = nil
     }
 
     // MARK: Hint bar

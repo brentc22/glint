@@ -45,6 +45,11 @@ final class SettingsModel: ObservableObject {
     // Redaction
     @Published var autoRedact = Prefs.autoRedact { didSet { d.set(autoRedact, forKey: "autoRedact") } }
     @Published var redactKinds = Prefs.redactKinds { didSet { d.set(redactKinds.map(\.rawValue), forKey: "redactKinds") } }
+    // Motion
+    @Published var motionEnabled = Prefs.motionEnabled { didSet { d.set(motionEnabled, forKey: "motionEnabled") } }
+    @Published var motionSpeed = Prefs.motionSpeed { didSet { d.set(motionSpeed.rawValue, forKey: "motionSpeed") } }
+    @Published var motionBounce = Prefs.motionBounce { didSet { d.set(motionBounce.rawValue, forKey: "motionBounce") } }
+
     @Published var customTerms = UserDefaults.standard.string(forKey: "customTerms") ?? "" { didSet { d.set(customTerms, forKey: "customTerms") } }
 
     // Shortcuts
@@ -96,6 +101,7 @@ enum SettingsWindow {
                 ("Files", "folder", AnyView(FilesPane(model: model))),
                 ("Shortcuts", "keyboard", AnyView(ShortcutsPane(model: model))),
                 ("Redaction", "eye.slash", AnyView(RedactionPane(model: model))),
+                ("Motion", "wand.and.rays", AnyView(MotionPane(model: model))),
                 ("About", "info.circle", AnyView(AboutPane())),
             ] {
                 let host = NSHostingController(rootView: view.frame(width: 520).fixedSize(horizontal: false, vertical: true))
@@ -253,6 +259,45 @@ private struct ShortcutsPane: View {
                 LabeledContent("Capture the whole screen") { Text("↩") }
                 LabeledContent("Copy the color under the cursor") { Text("C") }
                 LabeledContent("Cancel") { Text("Esc") }
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct MotionPane: View {
+    @ObservedObject var model: SettingsModel
+    private var systemReduced: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Animate windows and thumbnails", isOn: $model.motionEnabled)
+            } footer: {
+                if systemReduced {
+                    note("Reduce Motion is on in System Settings → Accessibility, so Glint only fades.")
+                } else {
+                    note("Off: things fade in and out instead of moving.")
+                }
+            }
+            Section {
+                Picker("Speed", selection: $model.motionSpeed) {
+                    Text("Relaxed").tag(Prefs.MotionSpeed.relaxed)
+                    Text("Standard").tag(Prefs.MotionSpeed.standard)
+                    Text("Snappy").tag(Prefs.MotionSpeed.snappy)
+                }
+                .pickerStyle(.segmented)
+                .disabled(!model.motionEnabled || systemReduced)
+                Picker("Bounce", selection: $model.motionBounce) {
+                    Text("None").tag(Prefs.MotionBounce.none)
+                    Text("Subtle").tag(Prefs.MotionBounce.subtle)
+                    Text("Playful").tag(Prefs.MotionBounce.playful)
+                }
+                .pickerStyle(.segmented)
+                .disabled(!model.motionEnabled || systemReduced)
+                LabeledContent("Try it") {
+                    Button("Show a toast") { Toast.show("This is how Glint moves", symbol: "sparkles") }
+                }
             }
         }
         .formStyle(.grouped)

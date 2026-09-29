@@ -6,6 +6,16 @@ import GlintCore
 enum Prefs {
     enum Corner: String, CaseIterable { case left, right }
     enum Format: String, CaseIterable { case png, jpeg }
+    /// How long motion takes: scales every spring's response and every fade.
+    enum MotionSpeed: String, CaseIterable {
+        case relaxed, standard, snappy
+        var scale: Double { switch self { case .relaxed: 1.35; case .standard: 1; case .snappy: 0.72 } }
+    }
+    /// How much a spring overshoots before it settles.
+    enum MotionBounce: String, CaseIterable {
+        case none, subtle, playful
+        var scale: Double { switch self { case .none: 0; case .subtle: 1; case .playful: 2 } }
+    }
 
     static let defaultFolder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures/Glint")
 
@@ -27,6 +37,9 @@ enum Prefs {
             "autoRedact": false,
             "redactKinds": SensitiveMatcher.Kind.allCases.map(\.rawValue),
             "customTerms": "",
+            "motionEnabled": true,
+            "motionSpeed": MotionSpeed.standard.rawValue,
+            "motionBounce": MotionBounce.subtle.rawValue,
         ])
     }
 
@@ -50,6 +63,10 @@ enum Prefs {
     static var redactKinds: Set<SensitiveMatcher.Kind> {
         Set((d.stringArray(forKey: "redactKinds") ?? []).compactMap(SensitiveMatcher.Kind.init))
     }
+    /// Off: movement becomes plain fades, as with Reduce Motion.
+    static var motionEnabled: Bool { d.bool(forKey: "motionEnabled") }
+    static var motionSpeed: MotionSpeed { MotionSpeed(rawValue: d.string(forKey: "motionSpeed") ?? "") ?? .standard }
+    static var motionBounce: MotionBounce { MotionBounce(rawValue: d.string(forKey: "motionBounce") ?? "") ?? .subtle }
     static var customTerms: [String] {
         (d.string(forKey: "customTerms") ?? "").split(whereSeparator: \.isNewline).map(String.init)
     }

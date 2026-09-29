@@ -15,7 +15,8 @@ final class PinWindow: NSPanel {
         window.alphaValue = 0
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        if let image = window.imageView { Motion.pop(image, from: 0.9, duration: 0.36) }
+        // No overshoot: the image fills its window, so anything past 1 would be cut off.
+        if let image = window.imageView { Motion.pop(image, from: 0.9, spring: .glide) }
         Motion.animate(0.2) { window.animator().alphaValue = 1 }
     }
 

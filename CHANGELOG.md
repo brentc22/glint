@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Motion runs on real springs. Windows move on a display-link spring that keeps its speed
+  when it gets a new target, so a card that's pushed twice bends instead of stopping and
+  restarting. Toasts, pins and the recording HUD land with a little give.
+- The capture's flight into its thumbnail moves one layer on the GPU instead of resizing a
+  window every frame, so it no longer stutters, and it keeps a shadow the whole way.
+- Swiping a thumbnail away carries on at the speed of your fingers; a quick flick is enough.
+- The window highlight glides at the same speed on 60 and 120 Hz displays.
+- Settings → Motion: turn motion off (fades only), and choose its speed and bounce.
+
 ## 0.3.2 — 2026-09-28
 
 - The selection overlay goes quiet the moment it finishes: during its fade-out, C, Space
