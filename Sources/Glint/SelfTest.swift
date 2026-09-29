@@ -10,6 +10,7 @@ enum SelfTest {
     private static var failures = 0
 
     static func run() async -> Never {
+        setvbuf(stdout, nil, _IOLBF, 0)  // piped to a file or CI, show each step as it happens
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("glint-selftest-\(getpid())")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -54,13 +55,30 @@ enum SelfTest {
             // 4. Two seconds of video, then a GIF of it.
             do {
                 let url = dir.appendingPathComponent("rec.mp4")
-                let recorder = try await Recorder(screen: screen, rect: rect, to: url)
+                // With system audio, and a one-second pause in the middle that mustn't show up.
+                let recorder = try await Recorder(screen: screen, rect: rect, to: url,
+                                                  options: .init(fps: 60, systemAudio: true))
                 try await recorder.start()
-                try await Task.sleep(for: .seconds(2))
+                try await Task.sleep(for: .seconds(1))
+                recorder.pause()
+                try await Task.sleep(for: .seconds(1))
+                recorder.resume()
+                try await Task.sleep(for: .seconds(1))
                 _ = try await recorder.stop()
-                let duration = try await AVURLAsset(url: url).load(.duration).seconds
+                let asset = AVURLAsset(url: url)
+                let duration = try await asset.load(.duration).seconds
+                let audio = try await asset.loadTracks(withMediaType: .audio).count
                 let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-                check(String(format: "recording: %.1f s, %d KB", duration, size / 1024), duration > 0.5 && size > 1000)
+                check(String(format: "recording: %.1f s (1 s paused), %d audio track, %d KB", duration, audio, size / 1024),
+                      duration > 1.6 && duration < 2.5 && audio == 1 && size > 1000)
+                await mixdown(dir)
+                await overlaysInVideo(screen: screen, rect: rect, dir: dir)
+                let trimmed = dir.appendingPathComponent("trim.mp4")
+                try FileManager.default.copyItem(at: url, to: trimmed)
+                try await TrimWindow.trim(trimmed, to: CMTimeRange(start: CMTime(seconds: 0.5, preferredTimescale: 600),
+                                                                  duration: CMTime(seconds: 1, preferredTimescale: 600)))
+                let kept = try await AVURLAsset(url: trimmed).load(.duration).seconds
+                check(String(format: "trim to 1 s: %.2f s", kept), abs(kept - 1) < 0.15)
                 let gif = try await GIFExport.make(from: url)
                 let frames = CGImageSourceCreateWithURL(gif as CFURL, nil).map(CGImageSourceGetCount) ?? 0
                 check("GIF export: \(frames) frames", frames >= 6)
@@ -81,6 +99,66 @@ enum SelfTest {
 
         print(failures == 0 ? "\nSELF-TEST PASSED" : "\nSELF-TEST FAILED (\(failures))")
         exit(failures == 0 ? 0 : 1)
+    }
+
+    /// Click rings and shortcuts are Glint windows, which recordings normally leave out;
+    /// these must end up in the video. Compares a frame before and after they appear.
+    private static func overlaysInVideo(screen: NSScreen, rect: CGRect, dir: URL) async {
+        let url = dir.appendingPathComponent("overlays.mp4")
+        let area = screen.globalRect(fromTopLeft: rect)
+        let rings = ClickRings(area: area), keys = KeystrokeHUD(area: area)
+        rings.show(); keys.show()
+        defer { rings.close(); keys.close() }
+        do {
+            let recorder = try await Recorder(screen: screen, rect: rect, to: url,
+                                              options: .init(showsCursor: false, keep: [rings.windowID, keys.windowID]))
+            try await recorder.start()
+            try await Task.sleep(for: .milliseconds(600))
+            keys.display("⌘⇧K")
+            rings.ring(at: CGPoint(x: area.midX, y: area.midY))
+            try await Task.sleep(for: .milliseconds(300))
+            _ = try await recorder.stop()
+            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = .zero
+            let before = try await generator.image(at: CMTime(seconds: 0.3, preferredTimescale: 600)).image
+            let after = try await generator.image(at: CMTime(seconds: 0.8, preferredTimescale: 600)).image
+            if let path = ProcessInfo.processInfo.environment["GLINT_SELFTEST_FRAME"] {  // for eyeballing
+                try Capture.png(after, scale: 1).write(to: URL(fileURLWithPath: path))
+            }
+            let changed = differingPixels(before, after)
+            check("click ring and shortcut are in the video: \(changed) px changed", changed > 2000)
+        } catch { check("overlays in video: \(error.localizedDescription)", false) }
+    }
+
+    private static func differingPixels(_ a: CGImage, _ b: CGImage) -> Int {
+        guard a.width == b.width, a.height == b.height else { return -1 }
+        func bytes(_ image: CGImage) -> [UInt8] {
+            var data = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            let ctx = CGContext(data: &data, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            ctx?.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return data
+        }
+        let (x, y) = (bytes(a), bytes(b))
+        return stride(from: 0, to: x.count, by: 4).filter { i in (0..<3).contains { abs(Int(x[i + $0]) - Int(y[i + $0])) > 40 } }.count
+    }
+
+    /// A file with two tones on two audio tracks, as a recording with system audio and the
+    /// microphone has, mixed down to one track that still lasts as long.
+    private static func mixdown(_ dir: URL) async {
+        let url = dir.appendingPathComponent("two-tracks.mp4")
+        do {
+            try await SyntheticVideo.write(to: url, seconds: 2, tones: [440, 660])
+            let before = try await AVURLAsset(url: url).loadTracks(withMediaType: .audio).count
+            try await AudioMixdown.run(url)
+            let asset = AVURLAsset(url: url)
+            let after = try await asset.loadTracks(withMediaType: .audio).count
+            let video = try await asset.loadTracks(withMediaType: .video).count
+            let duration = try await asset.load(.duration).seconds
+            check(String(format: "audio mixdown: %d → %d tracks, video kept, %.1f s", before, after, duration),
+                  before == 2 && after == 1 && video == 1 && abs(duration - 2) < 0.2)
+        } catch { check("audio mixdown: \(error.localizedDescription)", false) }
     }
 
     private static func scrollingCapture(on screen: NSScreen) async {
@@ -140,5 +218,80 @@ enum SelfTest {
     private static func check(_ label: String, _ ok: Bool) {
         print("  \(ok ? "ok  " : "FAIL") \(label)")
         if !ok { failures += 1 }
+    }
+}
+
+/// A small MP4 made from nothing: grey frames plus one sine tone per audio track.
+private enum SyntheticVideo {
+    /// Waits a moment for an input to take more; a failed writer never will, so that throws.
+    private static func ready(_ writer: AVAssetWriter) async throws {
+        if writer.status == .failed { throw writer.error ?? CaptureError.nothingRecorded }
+        try await Task.sleep(for: .milliseconds(2))
+    }
+
+    static func write(to url: URL, seconds: Int, tones: [Double]) async throws {
+        try? FileManager.default.removeItem(at: url)
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        let video = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 320, AVVideoHeightKey: 240])
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: video, sourcePixelBufferAttributes: nil)
+        writer.add(video)
+        let audio = tones.map { _ in
+            AVAssetWriterInput(mediaType: .audio, outputSettings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 48_000, AVNumberOfChannelsKey: 2])
+        }
+        audio.forEach(writer.add)
+        // Otherwise the writer holds one input back until the others pass its interleave
+        // window, and a loop that feeds them in turn waits forever.
+        ([video] + audio).forEach { $0.expectsMediaDataInRealTime = true }
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+
+        let rate = 48_000.0, chunk = 4800  // 100 ms
+        var format = AudioStreamBasicDescription(mSampleRate: rate, mFormatID: kAudioFormatLinearPCM,
+                                                 mFormatFlags: kLinearPCMFormatFlagIsSignedInteger | kLinearPCMFormatFlagIsPacked,
+                                                 mBytesPerPacket: 4, mFramesPerPacket: 1, mBytesPerFrame: 4,
+                                                 mChannelsPerFrame: 2, mBitsPerChannel: 16, mReserved: 0)
+        var description: CMAudioFormatDescription?
+        CMAudioFormatDescriptionCreate(allocator: nil, asbd: &format, layoutSize: 0, layout: nil, magicCookieSize: 0,
+                                       magicCookie: nil, extensions: nil, formatDescriptionOut: &description)
+        // Interleaved in 100 ms slices: the writer waits for every track to catch up, so
+        // writing all video first and then the audio deadlocks.
+        for slice in 0..<(seconds * 10) {
+            for frame in (slice * 3)..<(slice * 3 + 3) {
+                while !video.isReadyForMoreMediaData { try await ready(writer) }
+                var buffer: CVPixelBuffer?
+                CVPixelBufferCreate(nil, 320, 240, kCVPixelFormatType_32BGRA, nil, &buffer)
+                guard let buffer else { continue }
+                CVPixelBufferLockBaseAddress(buffer, [])
+                memset(CVPixelBufferGetBaseAddress(buffer), Int32(frame * 4 % 255), CVPixelBufferGetDataSize(buffer))
+                CVPixelBufferUnlockBaseAddress(buffer, [])
+                adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: 30))
+            }
+            let start = slice * chunk
+            for (input, tone) in zip(audio, tones) {
+                while !input.isReadyForMoreMediaData { try await ready(writer) }
+                var samples = [Int16](repeating: 0, count: chunk * 2)
+                for i in 0..<chunk {
+                    let v = Int16(sin(2 * .pi * tone * Double(start + i) / rate) * 8000)
+                    samples[i * 2] = v; samples[i * 2 + 1] = v
+                }
+                var block: CMBlockBuffer?
+                let bytes = samples.count * 2
+                CMBlockBufferCreateWithMemoryBlock(allocator: nil, memoryBlock: nil, blockLength: bytes, blockAllocator: nil,
+                                                   customBlockSource: nil, offsetToData: 0, dataLength: bytes, flags: 0, blockBufferOut: &block)
+                guard let block else { continue }
+                _ = samples.withUnsafeBytes { CMBlockBufferReplaceDataBytes(with: $0.baseAddress!, blockBuffer: block, offsetIntoDestination: 0, dataLength: bytes) }
+                var sample: CMSampleBuffer?
+                CMAudioSampleBufferCreateReadyWithPacketDescriptions(allocator: nil, dataBuffer: block, formatDescription: description!,
+                                                                     sampleCount: chunk, presentationTimeStamp: CMTime(value: CMTimeValue(start), timescale: 48_000),
+                                                                     packetDescriptions: nil, sampleBufferOut: &sample)
+                if let sample { input.append(sample) }
+            }
+        }
+        video.markAsFinished()
+        audio.forEach { $0.markAsFinished() }
+        await writer.finishWriting()
+        if let error = writer.error { throw error }
     }
 }

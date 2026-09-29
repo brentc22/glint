@@ -1,3 +1,4 @@
+import AVFoundation
 import AppKit
 import GlintCore
 
@@ -13,7 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pin: { [weak self] in self?.pin($0) },
         redact: { [weak self] in self?.redact($0) },
         copyText: { capture in Task { await Self.copyText(of: capture.image) } },
-        makeGIF: { capture in Task { await Self.makeGIF(capture) } }))
+        makeGIF: { capture in Task { await Self.makeGIF(capture) } },
+        trim: { TrimWindow.show($0) }))
     /// Last area selection, for "Capture Previous Area".
     private var lastArea: (display: CGDirectDisplayID, rect: CGRect)?
 
@@ -71,6 +73,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             SettingsWindow.show(tab: tab) { [weak self] in self?.registerShortcuts() ?? [] }
         }
         if args.contains("--history") { openHistory() }
+        // `--trim <video>`: the trim window on that recording.
+        if let i = args.firstIndex(of: "--trim"), i + 1 < args.count {
+            let url = URL(fileURLWithPath: args[i + 1])
+            Task {
+                guard let frame = try? await AVAssetImageGenerator(asset: AVURLAsset(url: url)).image(at: .zero).image else { return }
+                TrimWindow.show(Capture(image: frame, scale: 2, file: url))
+            }
+        }
         // `--select-demo <image>`: the selection overlay over that image instead of a real
         // screen grab — exercises the whole capture flow without the permission.
         if let i = args.firstIndex(of: "--select-demo"), i + 1 < args.count, let screen = NSScreen.main,

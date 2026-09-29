@@ -45,6 +45,13 @@ enum Prefs {
             "redactKinds": SensitiveMatcher.Kind.allCases.map(\.rawValue),
             "customTerms": "",
             "redactStyle": RedactStyle.pixelate.rawValue,
+            "recordFPS": 30,
+            "recordSystemAudio": false,
+            "recordMicrophone": false,
+            "recordClicks": true,
+            "recordKeystrokes": false,
+            "recordWebcam": false,
+            "recordCountdown": true,
             "motionEnabled": true,
             "motionSpeed": MotionSpeed.standard.rawValue,
             "motionBounce": MotionBounce.subtle.rawValue,
@@ -72,6 +79,13 @@ enum Prefs {
     static var redactKinds: Set<SensitiveMatcher.Kind> {
         Set((d.stringArray(forKey: "redactKinds") ?? []).compactMap(SensitiveMatcher.Kind.init))
     }
+    static var recordFPS: Int { d.integer(forKey: "recordFPS") == 60 ? 60 : 30 }
+    static var recordSystemAudio: Bool { d.bool(forKey: "recordSystemAudio") }
+    static var recordMicrophone: Bool { d.bool(forKey: "recordMicrophone") }
+    static var recordClicks: Bool { d.bool(forKey: "recordClicks") }
+    static var recordKeystrokes: Bool { d.bool(forKey: "recordKeystrokes") }
+    static var recordWebcam: Bool { d.bool(forKey: "recordWebcam") }
+    static var recordCountdown: Bool { d.bool(forKey: "recordCountdown") }
     /// Off: movement becomes plain fades, as with Reduce Motion.
     static var motionEnabled: Bool { d.bool(forKey: "motionEnabled") }
     static var motionSpeed: MotionSpeed { MotionSpeed(rawValue: d.string(forKey: "motionSpeed") ?? "") ?? .standard }

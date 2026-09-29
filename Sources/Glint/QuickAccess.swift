@@ -8,6 +8,7 @@ struct CaptureActions {
     let redact: (Capture) -> Void
     let copyText: (Capture) -> Void
     let makeGIF: (Capture) -> Void
+    let trim: (Capture) -> Void
 }
 
 /// The floating thumbnails in the corner after a capture. Hover for actions, drag the
@@ -282,7 +283,8 @@ private struct QuickAccessCard: View {
                                     ("Save as GIF", "photo.stack", { actions.makeGIF(capture) })],
                             topLeft: ("xmark", "Close", close),
                             topRight: ("play.fill", "Play", { NSWorkspace.shared.open(file) }),
-                            bottom: [("folder", "Show in Finder", { NSWorkspace.shared.activateFileViewerSelecting([file]) })],
+                            bottom: [("folder", "Show in Finder", { NSWorkspace.shared.activateFileViewerSelecting([file]) }),
+                                     ("scissors", "Trim", { actions.trim(capture) })],
                             bottomRight: nil)
                     } else {
                         controls(

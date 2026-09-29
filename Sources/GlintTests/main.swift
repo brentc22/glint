@@ -414,6 +414,19 @@ T.test("a file edited after capture gets a new cache key") {
              != HistorySearch.key(path: path, modified: Date(timeIntervalSince1970: 200)), "keys differ")
 }
 
+print("Keystroke (recordings)")
+T.test("shortcuts and special keys show, typing doesn't") {
+    T.equal(Keystroke.label(keyCode: 40, characters: "k", modifiers: [.command, .shift]), "⇧⌘K")
+    T.equal(Keystroke.label(keyCode: 8, characters: "c", modifiers: [.control, .option]), "⌃⌥C")
+    T.equal(Keystroke.label(keyCode: 36, characters: "\r", modifiers: []), "↩")
+    T.equal(Keystroke.label(keyCode: 53, characters: nil, modifiers: []), "esc")
+    T.equal(Keystroke.label(keyCode: 49, characters: " ", modifiers: [.command]), "⌘Space")
+    T.equal(Keystroke.label(keyCode: 0, characters: "a", modifiers: []), nil, "plain letter:")
+    T.equal(Keystroke.label(keyCode: 0, characters: "a", modifiers: [.shift]), nil, "capital letter:")
+    T.equal(Keystroke.label(keyCode: 14, characters: "e", modifiers: [.option]), nil, "⌥ for an accent:")
+    T.equal(Keystroke.label(keyCode: 49, characters: " ", modifiers: []), nil, "space while typing:")
+}
+
 print("FileNaming")
 T.test("dated name and unique suffix") {
     let date = ISO8601DateFormatter().date(from: "2026-09-24T13:04:12Z")!

@@ -47,6 +47,19 @@ final class SettingsModel: ObservableObject {
     @Published var autoRedact = Prefs.autoRedact { didSet { d.set(autoRedact, forKey: "autoRedact") } }
     @Published var redactKinds = Prefs.redactKinds { didSet { d.set(redactKinds.map(\.rawValue), forKey: "redactKinds") } }
     @Published var redactStyle = Prefs.redactStyle { didSet { d.set(redactStyle.rawValue, forKey: "redactStyle") } }
+    // Recording
+    @Published var recordFPS = Prefs.recordFPS { didSet { d.set(recordFPS, forKey: "recordFPS") } }
+    @Published var recordSystemAudio = Prefs.recordSystemAudio { didSet { d.set(recordSystemAudio, forKey: "recordSystemAudio") } }
+    @Published var recordMicrophone = Prefs.recordMicrophone { didSet { d.set(recordMicrophone, forKey: "recordMicrophone") } }
+    @Published var recordClicks = Prefs.recordClicks { didSet { d.set(recordClicks, forKey: "recordClicks") } }
+    @Published var recordKeystrokes = Prefs.recordKeystrokes {
+        didSet {
+            d.set(recordKeystrokes, forKey: "recordKeystrokes")
+            if recordKeystrokes { KeystrokeHUD.requestPermission() }
+        }
+    }
+    @Published var recordWebcam = Prefs.recordWebcam { didSet { d.set(recordWebcam, forKey: "recordWebcam") } }
+    @Published var recordCountdown = Prefs.recordCountdown { didSet { d.set(recordCountdown, forKey: "recordCountdown") } }
     // Motion
     @Published var motionEnabled = Prefs.motionEnabled { didSet { d.set(motionEnabled, forKey: "motionEnabled") } }
     @Published var motionSpeed = Prefs.motionSpeed { didSet { d.set(motionSpeed.rawValue, forKey: "motionSpeed") } }
@@ -102,6 +115,7 @@ enum SettingsWindow {
                 ("Capture", "camera.viewfinder", AnyView(CapturePane(model: model))),
                 ("Files", "folder", AnyView(FilesPane(model: model))),
                 ("Shortcuts", "keyboard", AnyView(ShortcutsPane(model: model))),
+                ("Recording", "record.circle", AnyView(RecordingPane(model: model))),
                 ("Redaction", "eye.slash", AnyView(RedactionPane(model: model))),
                 ("Motion", "wand.and.rays", AnyView(MotionPane(model: model))),
                 ("About", "info.circle", AnyView(AboutPane())),
@@ -265,7 +279,46 @@ private struct ShortcutsPane: View {
                 LabeledContent("Switch area / window") { Text("Space") }
                 LabeledContent("Capture the whole screen") { Text("↩") }
                 LabeledContent("Copy the color under the cursor") { Text("C") }
+                LabeledContent("Aspect ratio or fixed size") { Text("R") }
                 LabeledContent("Cancel") { Text("Esc") }
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct RecordingPane: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Frame rate", selection: $model.recordFPS) {
+                    Text("30 fps").tag(30)
+                    Text("60 fps").tag(60)
+                }
+                .pickerStyle(.segmented)
+                Toggle("Count down 3 seconds before recording", isOn: $model.recordCountdown)
+            }
+            Section {
+                Toggle("Record system audio", isOn: $model.recordSystemAudio)
+                Toggle("Record the microphone", isOn: $model.recordMicrophone)
+                    .disabled(!Recorder.canRecordMicrophone)
+            } header: {
+                Text("Sound")
+            } footer: {
+                note(Recorder.canRecordMicrophone
+                     ? "With both on, they're mixed into one track, so every player plays your voice. Glint's own sounds are left out."
+                     : "The microphone needs macOS 15 or later.")
+            }
+            Section {
+                Toggle("Show clicks", isOn: $model.recordClicks)
+                Toggle("Show keyboard shortcuts", isOn: $model.recordKeystrokes)
+                Toggle("Show the webcam", isOn: $model.recordWebcam)
+            } header: {
+                Text("In the video")
+            } footer: {
+                note("Shortcuts like ⌘⇧K and keys like ↩ appear; plain typing never does, so a password typed while recording stays private. Seeing other apps' shortcuts needs Accessibility. The webcam bubble can be dragged anywhere while recording.")
             }
         }
         .formStyle(.grouped)
