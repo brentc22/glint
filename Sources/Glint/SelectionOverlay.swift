@@ -15,6 +15,30 @@ enum SelectionResult {
 final class SelectionOverlay {
     enum Mode { case area, window }
 
+    /// The rule a selection follows, cycled with R: free, a fixed aspect ratio while you
+    /// drag, or an exact pixel size that follows the pointer and lands with a click — for
+    /// App Store shots, social cards and before/after pairs.
+    enum Shape: Equatable {
+        case free
+        case ratio(CGFloat, CGFloat)
+        case pixels(Int, Int)
+
+        static let cycle: [Shape] = [.free, .ratio(1, 1), .ratio(4, 3), .ratio(16, 9), .ratio(9, 16), .pixels(1280, 720), .pixels(1920, 1080)]
+
+        var label: String {
+            switch self {
+            case .free: "Free"
+            case let .ratio(w, h): "\(Int(w)):\(Int(h))"
+            case let .pixels(w, h): "\(w) × \(h)"
+            }
+        }
+
+        var next: Shape { Self.cycle[((Self.cycle.firstIndex(of: self) ?? 0) + 1) % Self.cycle.count] }
+    }
+
+    /// Kept for the rest of the session, so a series of shots comes out the same size.
+    private(set) static var shape: Shape = .free
+
     private var panels: [NSPanel] = []
     private var views: [SelectionView] = []
     private let completion: (SelectionResult) -> Void
@@ -66,6 +90,12 @@ final class SelectionOverlay {
             }
         }
         NSCursor.crosshair.set()
+    }
+
+    func cycleShape() {
+        Self.shape = Self.shape.next
+        if mode == .window { mode = .area }
+        views.forEach { $0.modeChanged() }
     }
 
     func toggleMode() {
@@ -152,8 +182,30 @@ private final class SelectionView: NSView {
     }
 
     private var selection: CGRect? {
+        if let fixed = fixedRect { return fixed }
         guard let a = dragStart, let b = dragCurrent else { return nil }
-        return CGRect(from: a, to: b).intersection(bounds)
+        guard case let .ratio(rw, rh) = SelectionOverlay.shape else { return CGRect(from: a, to: b).intersection(bounds) }
+        // The longer side leads; the other follows the ratio, in the direction of the drag.
+        let dx = b.x - a.x, dy = b.y - a.y
+        let w = max(abs(dx), abs(dy) * rw / rh), h = w * rh / rw
+        let corner = CGPoint(x: a.x + (dx < 0 ? -w : w), y: a.y + (dy < 0 ? -h : h))
+        return snapped(CGRect(from: a, to: corner)).intersection(bounds)
+    }
+
+    /// An exact-size box centered on the pointer, kept on screen and on the pixel grid so
+    /// 1280 × 720 comes out as 1280 × 720, not 1281.
+    private var fixedRect: CGRect? {
+        guard case let .pixels(pw, ph) = SelectionOverlay.shape, overlay.mode == .area, let mouse else { return nil }
+        let size = CGSize(width: min(CGFloat(pw) / shot.scale, bounds.width), height: min(CGFloat(ph) / shot.scale, bounds.height))
+        let x = min(max(mouse.x - size.width / 2, 0), bounds.width - size.width)
+        let y = min(max(mouse.y - size.height / 2, 0), bounds.height - size.height)
+        return snapped(CGRect(origin: CGPoint(x: x, y: y), size: size))
+    }
+
+    private func snapped(_ r: CGRect) -> CGRect {
+        let s = shot.scale
+        return CGRect(x: (r.minX * s).rounded() / s, y: (r.minY * s).rounded() / s,
+                      width: (r.width * s).rounded() / s, height: (r.height * s).rounded() / s)
     }
 
     private var hoveredWindow: PickableWindow? {
@@ -191,11 +243,13 @@ private final class SelectionView: NSView {
 
     /// A press that hasn't moved is still a click on a window, so the highlight stays until a real drag.
     private var isDragging: Bool {
-        guard let selection else { return false }
+        guard fixedRect == nil, let selection else { return false }
         return selection.width > 3 || selection.height > 3
     }
 
-    private var showsWindowHighlight: Bool { overlay.mode == .window || (overlay.allowsWindowMode && !isDragging) }
+    private var showsWindowHighlight: Bool {
+        overlay.mode == .window || (overlay.allowsWindowMode && !isDragging && SelectionOverlay.shape == .free)
+    }
 
     /// Points the highlight at the window under the cursor. The first one appears in place;
     /// after that it glides from window to window.
@@ -235,9 +289,12 @@ private final class SelectionView: NSView {
     // MARK: Hint bar
 
     private func updateHint() {
+        let shape = SelectionOverlay.shape
+        let lead = if case .pixels = shape { "Click to place the \(shape.label) box" } else { overlay.hint }
         let text = overlay.mode == .window
             ? "Click a window  ·  Space: select area  ·  Esc: cancel"
-            : overlay.hint + (overlay.allowsWindowMode ? "  ·  Space: windows only" : "") + "  ·  C: copy color  ·  ⏎ full screen  ·  Esc: cancel"
+            : lead + "  ·  R: \(shape.label)" + (overlay.allowsWindowMode ? "  ·  Space: windows only" : "")
+                + "  ·  C: copy color  ·  ⏎ full screen  ·  Esc: cancel"
         if hint.text != text { hint.text = text; placeHint() }
         let visible = mouse != nil && !isDragging
         guard visible != (hint.alphaValue > 0.5) else { return }
@@ -261,6 +318,7 @@ private final class SelectionView: NSView {
             if let window = hoveredWindow { overlay.finish(.window(window.id, frame: shot.screen.globalRect(fromTopLeft: window.frame))) }
             return
         }
+        if let fixed = fixedRect { return overlay.finish(.area(shot, fixed)) }
         dragStart = mouse
         dragCurrent = mouse
         retarget()
@@ -283,6 +341,9 @@ private final class SelectionView: NSView {
         defer { dragStart = nil; dragCurrent = nil }
         if let rect = selection, rect.width > 3, rect.height > 3 {
             overlay.finish(.area(shot, rect))
+        } else if SelectionOverlay.shape != .free {
+            // With a ratio picked there's no window highlight, so a click takes nothing.
+            needsDisplay = true
         } else if let window = hoveredWindow, overlay.allowsWindowMode {
             // A click without a drag takes the window under the cursor, as it is on its own:
             // uncovered, with its shadow and transparent corners. Drag for an area, click for
@@ -300,7 +361,10 @@ private final class SelectionView: NSView {
         case 49: overlay.toggleMode()                       // Space
         case 36, 76: overlay.finish(.area(shot, bounds))    // Return: whole screen
         default:
-            if event.charactersIgnoringModifiers?.lowercased() == "c", let mouse,
+            let key = event.charactersIgnoringModifiers?.lowercased()
+            if key == "r", dragStart == nil {
+                overlay.cycleShape()
+            } else if key == "c", let mouse,
                let hex = hexColor(at: CGPoint(x: (mouse.x * shot.scale).rounded(.down), y: (mouse.y * shot.scale).rounded(.down))) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(hex, forType: .string)
@@ -336,11 +400,13 @@ private final class SelectionView: NSView {
                 ctx.setLineWidth(1)
             }
             ctx.stroke(hole.insetBy(dx: 0.5, dy: 0.5))
-            label("\(Int(hole.width * shot.scale)) × \(Int(hole.height * shot.scale))", below: hole)
+            let shape = SelectionOverlay.shape
+            let size = "\(Int((hole.width * shot.scale).rounded())) × \(Int((hole.height * shot.scale).rounded()))"
+            label(windowHole || shape == .free ? size : "\(size)  ·  \(shape.label)", below: hole)
         }
 
         if overlay.mode == .area, let mouse {
-            if !isDragging { crosshair(at: mouse, ctx) }
+            if !isDragging, fixedRect == nil { crosshair(at: mouse, ctx) }
             loupe(at: mouse, ctx)
         }
     }

@@ -1,3 +1,4 @@
+import AVFoundation
 import AppKit
 import GlintCore
 
@@ -13,7 +14,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pin: { [weak self] in self?.pin($0) },
         redact: { [weak self] in self?.redact($0) },
         copyText: { capture in Task { await Self.copyText(of: capture.image) } },
-        makeGIF: { capture in Task { await Self.makeGIF(capture) } }))
+        makeGIF: { capture in Task { await Self.makeGIF(capture) } },
+        trim: { TrimWindow.show($0) },
+        upload: { Uploader.share($0) }))
     /// Last area selection, for "Capture Previous Area".
     private var lastArea: (display: CGDirectDisplayID, rect: CGRect)?
 
@@ -70,6 +73,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let tab = i + 1 < args.count ? Int(args[i + 1]) : nil
             SettingsWindow.show(tab: tab) { [weak self] in self?.registerShortcuts() ?? [] }
         }
+        if args.contains("--history") { openHistory() }
+        // `--trim <video>`: the trim window on that recording.
+        if let i = args.firstIndex(of: "--trim"), i + 1 < args.count {
+            let url = URL(fileURLWithPath: args[i + 1])
+            Task {
+                guard let frame = try? await AVAssetImageGenerator(asset: AVURLAsset(url: url)).image(at: .zero).image else { return }
+                TrimWindow.show(Capture(image: frame, scale: 2, file: url))
+            }
+        }
         // `--select-demo <image>`: the selection overlay over that image instead of a real
         // screen grab — exercises the whole capture flow without the permission.
         if let i = args.firstIndex(of: "--select-demo"), i + 1 < args.count, let screen = NSScreen.main,
@@ -118,6 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         recent.image = NSImage(systemSymbolName: "clock", accessibilityDescription: nil)
         recent.submenu = recentMenu()
         menu.addItem(recent)
+        menu.addItem(item("Capture History…", #selector(openHistory), key: "h", symbol: "square.grid.2x2"))
         menu.addItem(item("Show Screenshots Folder", #selector(openFolder), symbol: "folder"))
         menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(openSettings), key: ",", symbol: "gearshape"))
@@ -192,6 +205,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openRecent(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL, let capture = Self.load(url, keepFile: true) else { return }
         edit(capture)
+    }
+
+    @objc private func openHistory() {
+        HistoryWindow.show(open: { [weak self] url in
+            // Videos and GIFs open in their own app; the editor takes stills.
+            guard !["mp4", "gif"].contains(url.pathExtension.lowercased()), let capture = Self.load(url, keepFile: true) else {
+                NSWorkspace.shared.open(url)
+                return
+            }
+            self?.edit(capture)
+        }, pin: { [weak self] url in
+            if let capture = Self.load(url, keepFile: true) { self?.pin(capture) }
+        })
     }
 
     @objc private func openFolder() {
@@ -343,7 +369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Capture.playShutter()
         Task {
             if Prefs.autoRedact { _ = await Self.redactInPlace(capture) }
-            if Prefs.autoSave { _ = try? capture.save() }
+            if Prefs.autoSave { _ = try? capture.save(); HistoryWindow.refresh() }
             if Prefs.copyToClipboard { capture.copy() }
             if Prefs.openEditor { edit(capture) } else if Prefs.showQuickAccess { quickAccess.show(capture, on: screen, from: source) }
         }
@@ -351,6 +377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Recordings skip what only makes sense for stills: redaction, the editor, image copy.
     private func finishRecording(_ capture: Capture, screen: NSScreen?) {
+        HistoryWindow.refresh()
         if Prefs.copyToClipboard { capture.copy() }
         quickAccess.show(capture, on: screen)
     }
@@ -389,7 +416,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static func redactInPlace(_ capture: Capture) async -> Int {
         let regions = await TextRecognizer.sensitiveRegions(in: capture.image, kinds: Prefs.redactKinds, customTerms: Prefs.customTerms)
         guard !regions.isEmpty,
-              let redacted = Renderer.render(capture.image, annotations: regions.map { Annotation(.pixelate($0)) })
+              let redacted = Renderer.render(capture.image, annotations: regions.map { Annotation(Prefs.redactStyle.kind($0)) })
         else { return 0 }
         capture.update(redacted)
         return regions.count

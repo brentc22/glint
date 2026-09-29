@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-09-29
+
+Everything CleanShot X has that Glint didn't, and a few things it doesn't.
 
 - Motion runs on real springs. Windows move on a display-link spring that keeps its speed
   when it gets a new target, so a card that's pushed twice bends instead of stopping and
@@ -9,7 +11,38 @@
   window every frame, so it no longer stutters, and it keeps a shadow the whole way.
 - Swiping a thumbnail away carries on at the speed of your fingers; a quick flick is enough.
 - The window highlight glides at the same speed on 60 and 120 Hz displays.
-- Settings → Motion: turn motion off (fades only), and choose its speed and bounce.
+- Settings → More → Animations: turn motion off (fades only), and choose its speed and bounce.
+
+**Recording**
+- Sound: your Mac's audio and your microphone (macOS 15+). With both on they're mixed
+  into one track, so every player plays the voice-over. Glint's own sounds stay out.
+- Pause and resume, without a gap in the video. A 3-2-1 countdown. 30 or 60 fps.
+- Show clicks (a ring where you click), shortcuts you press (⇧⌘K, ↩ — never plain typing,
+  so a password typed while recording stays private) and your camera in a round bubble
+  you can drag anywhere. All three are part of the video.
+- Trim: the quick-access card's scissors open QuickTime's trim bar. The kept part is
+  copied, not re-encoded: instant, and not a pixel worse.
+- A GIF no longer fails over one unreadable frame.
+
+**Capture**
+- Capture History (⌘H in the menu): every capture by day, searchable by the text *inside*
+  the screenshots. The text is read on your Mac, once per file.
+- R while selecting: square, 4:3, 16:9, 9:16, or an exact 1280×720 / 1920×1080 box that
+  follows the pointer.
+- Leave out desktop icons and widgets. Only the capture changes; Finder isn't restarted.
+- Scrolling capture: Auto scrolls to the end for you and stops there (needs Accessibility).
+
+**Editor**
+- Blur, made from the same block averages as pixelate, so it can't be sharpened back.
+- Spotlight: dims everything but the parts that matter.
+- Colors are one swatch menu, so the toolbar fits.
+
+**Share links (opt-in)**
+- Upload to your own Cloudflare R2, S3, B2 or MinIO bucket and copy the link. Random,
+  unguessable names; the secret key in the Keychain; the shared copy is redacted by
+  default. Until it's set up, Glint makes no network requests.
+
+**Settings** are six tabs in plain words instead of nine.
 
 ## 0.3.2 — 2026-09-28
 

@@ -20,6 +20,14 @@ public struct RGBA: Equatable, Hashable, Sendable, Codable {
     public static let black = RGBA(0.1, 0.1, 0.1)
     public static let white = RGBA(1, 1, 1)
     public static let palette: [RGBA] = [.red, .orange, .yellow, .green, .blue, .purple, .black, .white]
+
+    public var name: String {
+        switch self {
+        case .red: "Red"; case .orange: "Orange"; case .yellow: "Yellow"; case .green: "Green"
+        case .blue: "Blue"; case .purple: "Purple"; case .black: "Black"; case .white: "White"
+        default: "Custom"
+        }
+    }
 }
 
 /// One mark on a screenshot. Geometry is in image pixels, origin top-left — the
@@ -33,6 +41,10 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         case ellipse(CGRect)
         case highlight(CGRect)
         case pixelate(CGRect)
+        /// Soft blur, built from the same block averages as `pixelate` — just as unrecoverable.
+        case blur(CGRect)
+        /// Dims everything outside the rectangle. Several spotlights share one dim layer.
+        case spotlight(CGRect)
         case freehand([CGPoint])
         case text(String, at: CGPoint, size: CGFloat)
         case counter(Int, at: CGPoint)
@@ -55,7 +67,8 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         switch kind {
         case let .arrow(a, b), let .line(a, b):
             return CGRect(from: a, to: b).insetBy(dx: -lineWidth * 2, dy: -lineWidth * 2)
-        case let .rectangle(r), let .filledRectangle(r), let .ellipse(r), let .highlight(r), let .pixelate(r):
+        case let .rectangle(r), let .filledRectangle(r), let .ellipse(r), let .highlight(r), let .pixelate(r),
+             let .blur(r), let .spotlight(r):
             return r.insetBy(dx: -lineWidth / 2, dy: -lineWidth / 2)
         case let .freehand(points):
             return points.reduce(CGRect.null) { $0.union(CGRect(origin: $1, size: .zero)) }
@@ -84,6 +97,8 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         case let .ellipse(q): copy.kind = .ellipse(r(q))
         case let .highlight(q): copy.kind = .highlight(r(q))
         case let .pixelate(q): copy.kind = .pixelate(r(q))
+        case let .blur(q): copy.kind = .blur(r(q))
+        case let .spotlight(q): copy.kind = .spotlight(r(q))
         case let .freehand(points): copy.kind = .freehand(points.map(p))
         case let .text(s, o, size): copy.kind = .text(s, at: p(o), size: size)
         case let .counter(n, c): copy.kind = .counter(n, at: p(c))

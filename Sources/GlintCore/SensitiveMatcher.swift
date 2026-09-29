@@ -12,12 +12,12 @@ public enum SensitiveMatcher {
             switch self {
             case .email: "Email addresses"
             case .phone: "Phone numbers"
-            case .iban: "IBANs"
-            case .card: "Card numbers"
-            case .apiKey: "API keys & secrets"
-            case .jwt: "Tokens (JWT)"
-            case .ipAddress: "IP addresses"
-            case .custom: "Your own terms"
+            case .iban: "Bank account numbers (IBAN)"
+            case .card: "Credit card numbers"
+            case .apiKey: "Passwords and secret keys"
+            case .jwt: "Login tokens"
+            case .ipAddress: "Internet addresses (IP)"
+            case .custom: "Your own words"
             }
         }
     }

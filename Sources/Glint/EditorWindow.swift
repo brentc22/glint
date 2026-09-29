@@ -21,7 +21,7 @@ final class EditorWindow: NSWindow, NSWindowDelegate {
         model = EditorModel(capture: capture)
         self.onPin = onPin
         let screen = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
-        let size = CGSize(width: min(max(capture.pointSize.width + 120, 900), screen.width * 0.9),
+        let size = CGSize(width: min(max(capture.pointSize.width + 120, 1000), screen.width * 0.9),
                           height: min(max(capture.pointSize.height + 160, 560), screen.height * 0.9))
         super.init(contentRect: CGRect(x: screen.midX - size.width / 2, y: screen.midY - size.height / 2,
                                        width: size.width, height: size.height),
@@ -31,7 +31,7 @@ final class EditorWindow: NSWindow, NSWindowDelegate {
         titlebarAppearsTransparent = true
         titleVisibility = .hidden
         isReleasedWhenClosed = false
-        minSize = CGSize(width: 820, height: 460)
+        minSize = CGSize(width: 960, height: 460)
         delegate = self
 
         let canvas = CanvasView(model: model)
@@ -45,6 +45,7 @@ final class EditorWindow: NSWindow, NSWindowDelegate {
             pin: { [weak self] in self?.pin() },
             copyText: { [weak self] in self?.copyText() },
             redact: { [weak self] in self?.redact() },
+            upload: { [weak self] in self?.upload() },
             done: { [weak self] in self?.close() })))
 
         let root = NSView()
@@ -82,6 +83,11 @@ final class EditorWindow: NSWindow, NSWindowDelegate {
         }
     }
 
+    private func upload() {
+        apply()
+        Uploader.share(model.capture)
+    }
+
     private func pin() {
         apply()
         onPin(model.capture)
@@ -117,6 +123,7 @@ struct EditorActions {
     let pin: () -> Void
     let copyText: () -> Void
     let redact: () -> Void
+    let upload: () -> Void
     let done: () -> Void
 }
 
@@ -138,20 +145,20 @@ private struct EditorToolbar: View {
             // Also when the tool changes by its key (A, R, O…), not only by a click.
             .animation(Motion.spring, value: model.tool)
             divider
-            HStack(spacing: 5) {
+            // One swatch that opens the palette: eight loose dots cost more toolbar than they're worth.
+            Menu {
                 ForEach(RGBA.palette, id: \.self) { c in
-                    Circle()
-                        .fill(Color(cgColor: c.cgColor))
-                        .frame(width: 16, height: 16)
-                        .overlay(Circle().strokeBorder(.primary.opacity(0.15), lineWidth: 0.5))
-                        .padding(3)
-                        .overlay(Circle().strokeBorder(Color.accentColor, lineWidth: 2)
-                            .scaleEffect(model.color == c ? 1 : 0.6)
-                            .opacity(model.color == c ? 1 : 0))
-                        .contentShape(Circle())
-                        .onTapGesture { withAnimation(Motion.spring) { model.color = c } }
+                    Button { withAnimation(Motion.spring) { model.color = c } } label: {
+                        Label { Text(c.name) } icon: { Image(nsImage: Self.swatch(c, selected: model.color == c)) }
+                    }
                 }
+            } label: {
+                Image(nsImage: Self.swatch(model.color, selected: false))
             }
+            .menuIndicator(.hidden)
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Color")
             divider
             HStack(spacing: 2) {
                 ForEach(StrokeSize.allCases) { s in
@@ -193,10 +200,12 @@ private struct EditorToolbar: View {
             iconButton("arrow.uturn.backward", help: "Undo (⌘Z)", active: false, action: model.undo).disabled(!model.document.canUndo)
             iconButton("arrow.uturn.forward", help: "Redo (⇧⌘Z)", active: false, action: model.redo).disabled(!model.document.canRedo)
             iconButton("text.viewfinder", help: "Copy text (OCR)", active: false, action: actions.copyText)
+            if Uploader.isConfigured {
+                iconButton("link", help: "Upload and copy link", active: false, action: actions.upload)
+            }
             iconButton("pin", help: "Pin to screen", active: false, action: actions.pin)
             iconButton("square.and.arrow.down", help: "Save (⌘S)", active: false, action: actions.save)
-            Button(action: actions.copy) { Label("Copy", systemImage: "doc.on.doc") }
-                .help("Copy (⌘C)")
+            iconButton("doc.on.doc", help: "Copy (⌘C)", active: false, action: actions.copy)
             Button("Done", action: actions.done)
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.return, modifiers: .command)
@@ -207,6 +216,21 @@ private struct EditorToolbar: View {
     }
 
     private var divider: some View { Divider().frame(height: 22) }
+
+    /// A color dot as a non-template image, so menus show the color instead of tinting it.
+    private static func swatch(_ c: RGBA, selected: Bool) -> NSImage {
+        let image = NSImage(size: CGSize(width: 18, height: 18), flipped: false) { rect in
+            let dot = NSBezierPath(ovalIn: rect.insetBy(dx: 2, dy: 2))
+            NSColor(cgColor: c.cgColor)?.setFill()
+            dot.fill()
+            NSColor.labelColor.withAlphaComponent(selected ? 0.9 : 0.2).setStroke()
+            dot.lineWidth = selected ? 2 : 0.5
+            dot.stroke()
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
 
     private func iconButton(_ symbol: String, help: String, active: Bool, action: @escaping () -> Void) -> some View {
         ToolbarIcon(symbol: symbol, active: active, namespace: nil, action: action).help(help)

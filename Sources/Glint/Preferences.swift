@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import GlintCore
 
@@ -6,6 +7,11 @@ import GlintCore
 enum Prefs {
     enum Corner: String, CaseIterable { case left, right }
     enum Format: String, CaseIterable { case png, jpeg }
+    /// How Redact covers what it finds. Both draw only block averages, so both are safe.
+    enum RedactStyle: String, CaseIterable {
+        case pixelate, blur
+        func kind(_ rect: CGRect) -> Annotation.Kind { self == .blur ? .blur(rect) : .pixelate(rect) }
+    }
     /// How long motion takes: scales every spring's response and every fade.
     enum MotionSpeed: String, CaseIterable {
         case relaxed, standard, snappy
@@ -31,12 +37,23 @@ enum Prefs {
             "playSound": true,
             "showCursor": false,
             "windowShadow": true,
+            "hideDesktopIcons": false,
             "format": Format.png.rawValue,
             "downscaleRetina": false,
             "filenamePrefix": "Glint",
             "autoRedact": false,
             "redactKinds": SensitiveMatcher.Kind.allCases.map(\.rawValue),
             "customTerms": "",
+            "redactStyle": RedactStyle.pixelate.rawValue,
+            "redactBeforeUpload": true,
+            "uploadRegion": "auto",
+            "recordFPS": 30,
+            "recordSystemAudio": false,
+            "recordMicrophone": false,
+            "recordClicks": true,
+            "recordKeystrokes": false,
+            "recordWebcam": false,
+            "recordCountdown": true,
             "motionEnabled": true,
             "motionSpeed": MotionSpeed.standard.rawValue,
             "motionBounce": MotionBounce.subtle.rawValue,
@@ -56,6 +73,7 @@ enum Prefs {
     static var playSound: Bool { d.bool(forKey: "playSound") }
     static var showCursor: Bool { d.bool(forKey: "showCursor") }
     static var windowShadow: Bool { d.bool(forKey: "windowShadow") }
+    static var hideDesktopIcons: Bool { d.bool(forKey: "hideDesktopIcons") }
     static var format: Format { Format(rawValue: d.string(forKey: "format") ?? "") ?? .png }
     static var downscaleRetina: Bool { d.bool(forKey: "downscaleRetina") }
     static var filenamePrefix: String { d.string(forKey: "filenamePrefix") ?? "Glint" }
@@ -63,10 +81,19 @@ enum Prefs {
     static var redactKinds: Set<SensitiveMatcher.Kind> {
         Set((d.stringArray(forKey: "redactKinds") ?? []).compactMap(SensitiveMatcher.Kind.init))
     }
+    static var recordFPS: Int { d.integer(forKey: "recordFPS") == 60 ? 60 : 30 }
+    static var recordSystemAudio: Bool { d.bool(forKey: "recordSystemAudio") }
+    static var recordMicrophone: Bool { d.bool(forKey: "recordMicrophone") }
+    static var recordClicks: Bool { d.bool(forKey: "recordClicks") }
+    static var recordKeystrokes: Bool { d.bool(forKey: "recordKeystrokes") }
+    static var recordWebcam: Bool { d.bool(forKey: "recordWebcam") }
+    static var recordCountdown: Bool { d.bool(forKey: "recordCountdown") }
     /// Off: movement becomes plain fades, as with Reduce Motion.
     static var motionEnabled: Bool { d.bool(forKey: "motionEnabled") }
     static var motionSpeed: MotionSpeed { MotionSpeed(rawValue: d.string(forKey: "motionSpeed") ?? "") ?? .standard }
     static var motionBounce: MotionBounce { MotionBounce(rawValue: d.string(forKey: "motionBounce") ?? "") ?? .subtle }
+    static var redactBeforeUpload: Bool { d.bool(forKey: "redactBeforeUpload") }
+    static var redactStyle: RedactStyle { RedactStyle(rawValue: d.string(forKey: "redactStyle") ?? "") ?? .pixelate }
     static var customTerms: [String] {
         (d.string(forKey: "customTerms") ?? "").split(whereSeparator: \.isNewline).map(String.init)
     }

@@ -126,6 +126,49 @@ T.test("pixelate replaces detail with blocks") {
     T.equal(a, b, "neighbouring pixels in one block are equal:")
     T.expect(a > 40 && a < 215, "block is a mix, not pure black/white (\(a))")
 }
+T.test("blur is soft, stays inside its box, and carries no more than the block averages") {
+    let checker = Renderer.draw(size: CGSize(width: 200, height: 100)) { ctx in
+        ctx.setFillColor(CGColor(gray: 1, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: 200, height: 100))
+        for x in stride(from: 0, to: 200, by: 2) { for y in stride(from: 0, to: 100, by: 2) where (x + y) % 4 == 0 {
+            ctx.setFillColor(CGColor(gray: 0, alpha: 1)); ctx.fill(CGRect(x: x, y: y, width: 2, height: 2))
+        } }
+    }!
+    let box = CGRect(x: 0, y: 0, width: 100, height: 100)
+    let out = Renderer.render(checker, annotations: [Annotation(.blur(box))])!
+    let a = pixel(out, 40, 40)[0], b = pixel(out, 41, 40)[0]
+    T.expect(abs(Int(a) - Int(b)) <= 2, "neighbours are smooth (\(a) vs \(b))")
+    T.expect(a > 40 && a < 215, "a mix, not the checker (\(a))")
+    T.equal(pixel(out, 150, 40), pixel(checker, 150, 40), "outside the box is untouched:")
+    // Two sources with the same block averages blur to the same pixels: nothing else gets through.
+    let flat = Renderer.draw(size: CGSize(width: 200, height: 100)) { ctx in
+        let grid = BlockGrid(checker, box)!
+        for row in 0..<grid.rows { for col in 0..<grid.cols {
+            let v = CGFloat(grid.cells[(row * grid.cols + col) * 4]) / 255
+            ctx.setFillColor(CGColor(srgbRed: v, green: v, blue: v, alpha: 1)); ctx.fill(grid.cellRect(col, row))
+        } }
+    }!
+    let same = Renderer.render(flat, annotations: [Annotation(.blur(box))])!
+    T.expect(abs(Int(pixel(same, 40, 40)[0]) - Int(a)) <= 2, "blur of the averages matches the blur of the original (\(pixel(same, 40, 40)[0]) vs \(a))")
+}
+T.test("spotlight dims outside its box, and two spotlights don't dim each other") {
+    let spots = [Annotation(.spotlight(CGRect(x: 10, y: 10, width: 80, height: 80))),
+                 Annotation(.spotlight(CGRect(x: 60, y: 60, width: 80, height: 80)))]
+    let out = Renderer.render(white, annotations: spots)!
+    T.equal(pixel(out, 50, 50)[0], 255, "inside the first:")
+    T.equal(pixel(out, 120, 120)[0], 255, "inside the second:")
+    T.expect(pixel(out, 300, 150)[0] < 140, "outside is dimmed (\(pixel(out, 300, 150)[0]))")
+    let arrowOnTop = Renderer.render(white, annotations: [Annotation(.line(from: CGPoint(x: 290, y: 110), to: CGPoint(x: 330, y: 110)), color: .white, lineWidth: 10)] + spots)!
+    T.equal(pixel(arrowOnTop, 310, 110)[0], 255, "marks stay bright over the dim, whatever their order:")
+    let redacted = Renderer.render(white, annotations: spots + [Annotation(.pixelate(CGRect(x: 300, y: 100, width: 40, height: 40)))])!
+    T.expect(pixel(redacted, 310, 110)[0] < 140, "a redaction outside the spotlight is dimmed too")
+    let covered = Renderer.render(white, annotations: [Annotation(.text("secret", at: CGPoint(x: 200, y: 20), size: 40), color: .red),
+                                                       Annotation(.filledRectangle(CGRect(x: 190, y: 10, width: 200, height: 70)), color: .black)])!
+    T.expect(pixel(covered, 220, 40)[0] < 40, "a black-out drawn over a label still hides it")
+    let clear = Renderer.draw(size: CGSize(width: 100, height: 100)) { $0.setFillColor(.white); $0.fill(CGRect(x: 20, y: 20, width: 60, height: 60)) }!
+    let lit = Renderer.render(clear, annotations: [Annotation(.spotlight(CGRect(x: 30, y: 30, width: 20, height: 20)))])!
+    T.equal(pixel(lit, 5, 5)[3], 0, "transparent margin stays transparent:")
+    T.expect(pixel(lit, 70, 70)[0] < 140, "the window itself is dimmed")
+}
 T.test("crop and backdrop change the output size") {
     let cropped = Renderer.render(white, annotations: [], crop: CGRect(x: 10, y: 10, width: 100, height: 50))!
     T.equal([cropped.width, cropped.height], [100, 50])
@@ -362,6 +405,60 @@ T.test("tall images are read in overlapping tiles") {
     T.equal(tiles.first?.minY, 0)
     T.equal(tiles.last?.maxY, 5000, "reaches the bottom:")
     T.expect(zip(tiles, tiles.dropFirst()).allSatisfy { $0.maxY - $1.minY == 80 }, "80 px overlaps")
+}
+
+print("HistorySearch")
+T.test("every word must match the name or the text, ignoring case and accents") {
+    T.expect(HistorySearch.matches("factuur acme", name: "Glint 2026-09-24.png", text: "Factuur 2291\nACME bv"), "words on two lines")
+    T.expect(HistorySearch.matches("cafe", name: "x.png", text: "Café Central"), "accents")
+    T.expect(HistorySearch.matches("2026-09", name: "Glint 2026-09-24 at 13.04.12.png", text: nil), "file name, no text yet")
+    T.expect(!HistorySearch.matches("factuur zeta", name: "x.png", text: "Factuur 2291"), "one word missing")
+    T.expect(HistorySearch.matches("   ", name: "x.png", text: nil), "blank query shows all")
+}
+T.test("a file edited after capture gets a new cache key") {
+    let path = "/tmp/a.png"
+    T.expect(HistorySearch.key(path: path, modified: Date(timeIntervalSince1970: 100))
+             != HistorySearch.key(path: path, modified: Date(timeIntervalSince1970: 200)), "keys differ")
+}
+
+print("Keystroke (recordings)")
+T.test("shortcuts and special keys show, typing doesn't") {
+    T.equal(Keystroke.label(keyCode: 40, characters: "k", modifiers: [.command, .shift]), "⇧⌘K")
+    T.equal(Keystroke.label(keyCode: 8, characters: "c", modifiers: [.control, .option]), "⌃⌥C")
+    T.equal(Keystroke.label(keyCode: 36, characters: "\r", modifiers: []), "↩")
+    T.equal(Keystroke.label(keyCode: 53, characters: nil, modifiers: []), "esc")
+    T.equal(Keystroke.label(keyCode: 49, characters: " ", modifiers: [.command]), "⌘Space")
+    T.equal(Keystroke.label(keyCode: 0, characters: "a", modifiers: []), nil, "plain letter:")
+    T.equal(Keystroke.label(keyCode: 0, characters: "a", modifiers: [.shift]), nil, "capital letter:")
+    T.equal(Keystroke.label(keyCode: 14, characters: "e", modifiers: [.option]), nil, "⌥ for an accent:")
+    T.equal(Keystroke.label(keyCode: 49, characters: " ", modifiers: []), nil, "space while typing:")
+}
+
+print("S3Signer (upload)")
+T.test("matches the AWS SigV4 test suite: get-vanilla") {
+    let signer = S3Signer(accessKey: "AKIDEXAMPLE", secretKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+                          region: "us-east-1", service: "service")
+    let date = ISO8601DateFormatter().date(from: "2015-08-30T12:36:00Z")!
+    let headers = signer.sign(method: "GET", url: URL(string: "https://example.amazonaws.com/")!,
+                              payloadHash: S3Signer.sha256Hex(Data()), date: date)
+    T.equal(headers["Authorization"], "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, "
+            + "SignedHeaders=host;x-amz-date, Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31")
+}
+T.test("matches the S3 documentation example: GET object with a range") {
+    let signer = S3Signer(accessKey: "AKIAIOSFODNN7EXAMPLE", secretKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", region: "us-east-1")
+    let date = ISO8601DateFormatter().date(from: "2013-05-24T00:00:00Z")!
+    let headers = signer.sign(method: "GET", url: URL(string: "https://examplebucket.s3.amazonaws.com/test.txt")!,
+                              headers: ["Range": "bytes=0-9"], payloadHash: S3Signer.sha256Hex(Data()), date: date)
+    T.expect(headers["Authorization"]?.hasSuffix("SignedHeaders=host;range;x-amz-content-sha256;x-amz-date, "
+             + "Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41") == true, headers["Authorization"] ?? "none")
+}
+T.test("paths with spaces are encoded once") {
+    T.equal(S3Signer.canonicalPath(URL(string: "https://x.test/bucket/My%20Shot.png")!), "/bucket/My%20Shot.png")
+}
+T.test("upload keys are random and don't count up") {
+    let a = UploadKey.make(ext: "png"), b = UploadKey.make(ext: "png")
+    T.expect(a != b, "two keys differ")
+    T.expect(a.hasSuffix(".png") && a.split(separator: "/").last!.count == 20, a)
 }
 
 print("FileNaming")

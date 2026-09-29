@@ -35,15 +35,22 @@ annotation: move it, delete it, or add more.
   transparent corners. Same shortcut as an area: drag for an area, click for the
   highlighted window.
 - **Full screen** and **previous area** (the same rectangle again, for before/after shots).
+- **Exact sizes**: press <kbd>R</kbd> while selecting for 1:1, 4:3, 16:9, 9:16, or a
+  pixel-exact 1280×720 or 1920×1080 box that follows the pointer.
 - **Scrolling capture**: select a region, scroll, press Done. Frames are stitched as you
   go; sticky headers, footers and floating buttons are detected so they don't repeat, and
-  repetitive content (logs, tables, numbered lists) still lines up exactly.
-- **Screen recording** to MP4, with one-click **GIF** export.
+  repetitive content (logs, tables, numbered lists) still lines up exactly. **Auto**
+  scrolls to the end for you.
+- **Screen recording** to MP4 at 30 or 60 fps, with your Mac's sound and your voice
+  (mixed into one track), pause and resume, a 3-2-1 countdown, click rings, the shortcuts
+  you press (never plain typing) and a webcam bubble. **Trim** without re-encoding and
+  one-click **GIF** export.
 - **Text (OCR)**: drag over anything and the text lands on your clipboard. QR codes are
   decoded, so you get the link rather than a picture of it.
 - **Self-timer** (3, 5 or 10 s) for hover states and open menus.
 - **Color picker**: press <kbd>C</kbd> while selecting to copy the hex color under the cursor.
-- Optionally include the mouse pointer.
+- Optionally include the mouse pointer, or leave out desktop icons and widgets (only in the
+  capture; Finder isn't restarted).
 
 **After capture**
 - **Quick access overlay**: a thumbnail in the corner. Drag it into any app, or hover to
@@ -52,6 +59,10 @@ annotation: move it, delete it, or add more.
 - **Pin to screen**: a floating, always-on-top copy. Drag to move, pinch to resize,
   scroll to fade, double-click to close.
 - Annotate an image from your clipboard, a file, or a recent capture.
+- **Capture History**: every capture by day, searchable by the text *inside* the
+  screenshots, read on-device.
+- **Share links** (opt-in): upload to your own Cloudflare R2, S3, B2 or MinIO bucket and
+  copy the link. Unguessable names, the secret in the Keychain, redacted by default.
 
 **Annotate**
 
@@ -59,26 +70,27 @@ annotation: move it, delete it, or add more.
   <img src="docs/editor.png" width="720" alt="Glint editor with an arrow, numbered steps and a rectangle">
 </p>
 
-- Arrow, rectangle, ellipse, line, pen, highlighter, text, numbered steps, pixelate,
-  black-out and crop, each with a single-key shortcut (<kbd>A</kbd>, <kbd>R</kbd>, <kbd>O</kbd>…).
+- Arrow, rectangle, ellipse, line, pen, highlighter, spotlight, text, numbered steps, blur,
+  pixelate, black-out and crop, each with a single-key shortcut (<kbd>A</kbd>, <kbd>R</kbd>, <kbd>O</kbd>…).
+- **Blur and pixelate are both safe**: each is drawn only from block averages of the pixels
+  underneath, so neither can be sharpened back into readable text.
 - Tapered arrows and soft shadows, so annotations look good without fiddling.
 - Select, move (arrow keys nudge), recolor and delete. Unlimited undo and redo.
 - **Backgrounds**: a gradient frame with rounded corners and a shadow, for posts and docs.
 - Retina-aware: files carry the right DPI, so a 2× shot shows at its real size in
   Keynote, Pages and Preview.
 
-**Private by design**: no account, no network access, no analytics. OCR and redaction
-run on your Mac.
+**Private by design**: no account, no analytics, and no network access unless you set up
+share links yourself. OCR and redaction run on your Mac.
 
-**Light**: a 4 MB app using about 45 MB of memory and 0 % CPU when idle.
+**Light**: a small app using about 45 MB of memory and 0 % CPU when idle.
 
-**Settings you can find things in**: six tabs (General, Capture, Files, Shortcuts,
-Redaction, About). Every shortcut can be changed, files can be PNG or JPEG, Retina shots
-can be saved at 1× size, and you can add your own terms to redact: customer names,
-project codes, or any regular expression.
+**Settings anyone understands**: six tabs (General, Recording, Privacy, Shortcuts, More,
+About), in plain words — "Copy it, so I can paste it anywhere", not "Copy to clipboard".
+File formats, animation and share-link setup wait under More.
 
 <p align="center">
-  <img src="docs/settings.png" width="420" alt="Glint's Redaction settings: which kinds of data to look for, plus your own terms">
+  <img src="docs/settings.png" width="420" alt="Glint's General settings: what happens after a screenshot, in plain words">
 </p>
 
 ## Shortcuts
@@ -98,14 +110,15 @@ Keyboard → Keyboard Shortcuts → Screenshots; Glint's Shortcuts settings flag
 they're still on. All of them can be changed in Settings → Shortcuts.
 
 While selecting: <kbd>Space</kbd> switches to windows only (and back), <kbd>⏎</kbd> takes
-the whole screen, <kbd>C</kbd> copies the color under the cursor, <kbd>Esc</kbd> cancels.
+the whole screen, <kbd>R</kbd> cycles aspect ratios and exact sizes, <kbd>C</kbd> copies the
+color under the cursor, <kbd>Esc</kbd> cancels.
 
 In the editor: <kbd>⌘Z</kbd> / <kbd>⇧⌘Z</kbd> undo and redo, <kbd>⌘C</kbd> copies,
 <kbd>⌘S</kbd> saves, <kbd>⌘⏎</kbd> finishes, <kbd>⌫</kbd> deletes the selection.
 
 ## Glint vs. CleanShot X
 
-CleanShot X is excellent and does more. Here's where each one stands today:
+CleanShot X is excellent. Here's where each one stands today:
 
 | | Glint | CleanShot X |
 | --- | --- | --- |
@@ -117,11 +130,17 @@ CleanShot X is excellent and does more. Here's where each one stands today:
 | Background frames | ✓ | ✓ |
 | OCR, pin to screen | ✓ | ✓ |
 | Scrolling capture | ✓ | ✓ |
-| Screen recording, GIF | ✓ | ✓ |
+| Screen recording, GIF, trim | ✓ | ✓ |
+| Recording audio, pause, clicks, keystrokes, webcam | ✓ | ✓ |
+| Auto-scrolling capture, fixed sizes and ratios, hide desktop icons | ✓ | ✓ |
+| Blur, spotlight | ✓ | ✓ |
+| Share links | ✓ your own bucket | ✓ their cloud |
 | Custom shortcuts, self-timer, color picker, QR | ✓ | ✓ |
 | **Automatic redaction of emails, IBANs, cards, keys, tokens + your own terms** | ✓ | – |
-| Cloud upload & share links | – | ✓ |
-| Recording audio, webcam overlay | – | ✓ |
+| **Blur that can't be sharpened back** (built from block averages) | ✓ | – |
+| **History searchable by the text in your screenshots** | ✓ | – |
+| **Keystrokes that never show plain typing** (passwords stay out of videos) | ✓ | – |
+| **Shared copies redacted automatically** | ✓ | – |
 
 ## Install
 
@@ -154,32 +173,40 @@ make run                       # build, install to /Applications, launch
 | --- | --- |
 | Capture | ScreenCaptureKit (`SCScreenshotManager`), all displays at native resolution, before the overlay appears |
 | Scrolling capture | the region grabbed ~8×/s; per-row signatures, sticky bands found by comparing frames, offset from a distinctive anchor row, confirmed by rows matching *exactly* so repetitive content can't slip |
-| Recording | `SCStream` → `AVAssetWriter` (H.264), frames written as they arrive; GIF via `AVAssetImageGenerator` + ImageIO |
+| Recording | `SCStream` → `AVAssetWriter` (H.264 + AAC), frames written as they arrive; pause shifts later timestamps back; system audio and microphone mixed to one track with `AVAssetReaderAudioMixOutput`, video copied as is; trim via a passthrough `AVAssetExportSession`; GIF via `AVAssetImageGenerator` + ImageIO |
+| Click rings, keystrokes, webcam | Glint windows the recorder is told to keep, while it leaves out its own HUD |
+| Hide desktop icons | Finder's windows at the desktop-icon level (and widgets just above) go on the capture's exclude list |
+| History search | Vision OCR per file, cached by path and modification date; every query word must match, ignoring case and accents |
+| Share links | AWS Signature V4 with CryptoKit, no SDK; tested against AWS's reference vectors |
 | Window capture | `SCContentFilter(desktopIndependentWindow:)`, z-order from `CGWindowList` |
 | Shortcuts | Carbon `RegisterEventHotKey`, which needs no Accessibility permission |
 | OCR & redaction | Vision `VNRecognizeTextRequest` (language correction off, so keys stay intact), regex + IBAN mod-97 + Luhn, per-match boxes via `boundingBox(for:)` |
-| Pixelate | exact block averages, not resampling, which would keep a real pixel per block |
+| Pixelate & blur | exact block averages, not resampling, which would keep a real pixel per block; blur smooths the averages with Core Image, never the original |
 | Rendering | one Core Graphics renderer, used by both the editor canvas and the export |
 
 ## Development
 
 ```sh
-make test                                         # 30 unit tests: matcher, renderer, stitcher, undo, OCR, GIF
+make test                                         # 44 unit tests: matcher, renderer, stitcher, undo, OCR, GIF, SigV4…
 make bundle                                       # Glint.app in the repo root
 Glint.app/Contents/MacOS/Glint --self-test        # every capture path for real, see below
 open Glint.app --args --edit docs/demo-input.png  # editor on the demo image, no permission needed
 ```
 
-`--self-test` captures every display, a window, a region 5× (timed), records 2 s of video
-and turns it into a GIF, scroll-captures a 120-line window of its own and checks that
-the result is exactly as tall as the document and that OCR reads it back. Started from a
-terminal it uses the terminal's Screen Recording permission.
+`--self-test` captures every display, a window, a region 5× (timed), records video with
+system audio and a pause (which must not show up in its length), checks that click rings
+and shortcuts land in the video, mixes two audio tracks into one, trims, makes a GIF,
+scroll-captures a 120-line window of its own by hand and with Auto (both must come out
+exactly as tall as the document, and OCR must read it back), and checks that desktop
+icons can be left out. Started from a terminal it uses the terminal's Screen Recording
+(and, for Auto, Accessibility) permission. With `GLINT_UPLOAD_TEST="endpoint bucket key
+secret"` it also uploads to that bucket.
 
 `docs/demo-input.png` is a made-up settings screen full of fake sensitive data
 (`swift scripts/make-demo-image.swift` regenerates it). The test suite checks that Redact
 finds exactly its six secrets and leaves the rest alone.
 
-Other launch arguments: `--quick-access <image>`, `--settings <tab>` and
+Other launch arguments: `--quick-access <image>`, `--settings <tab>`, `--history`, `--trim <video>` and
 `--select-demo <image>` (the selection overlay over an image instead of your screen).
 
 ```
@@ -191,10 +218,11 @@ Sources/
 
 ## Roadmap
 
-- [ ] Audio (microphone / system) in recordings
-- [ ] Hide desktop icons while capturing
+- [x] Audio (microphone / system) in recordings
+- [x] Hide desktop icons while capturing
+- [x] Bring-your-own-bucket upload (S3 / R2) for share links, opt-in
 - [ ] Measure tool (distances between UI elements)
-- [ ] Bring-your-own-bucket upload (S3 / R2) for share links, opt-in
+- [ ] Combine several screenshots on one canvas
 - [ ] Notarized builds and a Homebrew cask
 
 Ideas and PRs welcome. Open an issue first for anything big.

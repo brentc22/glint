@@ -40,6 +40,13 @@ final class Capture: ObservableObject {
         if Prefs.copyToClipboard { copy() }
     }
 
+    /// A trimmed recording starts on a different frame. Only the picture changes: the file
+    /// is the video, and `update` would write an image over it.
+    func replaceThumbnail(_ frame: CGImage) {
+        guard isVideo else { return }
+        image = frame
+    }
+
     func copy() {
         let pb = NSPasteboard.general
         pb.clearContents()
