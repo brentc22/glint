@@ -89,6 +89,7 @@ enum SelfTest {
         //    scrolled step by step, stitched, then read back with OCR.
         if let screen = NSScreen.main {
             await scrollingCapture(on: screen)
+            await scrollingCapture(on: screen, auto: true)
         }
 
         // 6. OCR on a real screen.
@@ -161,7 +162,7 @@ enum SelfTest {
         } catch { check("audio mixdown: \(error.localizedDescription)", false) }
     }
 
-    private static func scrollingCapture(on screen: NSScreen) async {
+    private static func scrollingCapture(on screen: NSScreen, auto: Bool = false) async {
         let size = CGSize(width: 520, height: 420)
         let origin = CGPoint(x: screen.visibleFrame.minX + 40, y: screen.visibleFrame.minY + 40)
         let window = NSWindow(contentRect: CGRect(origin: origin, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -185,19 +186,33 @@ enum SelfTest {
             let scale = screen.backingScaleFactor
             var stitcher = Stitcher(width: Int(size.width * scale), height: Int(size.height * scale))
             let documentHeight = text.frame.height
-            var y: CGFloat = 0
-            while true {
+            if auto {
+                // Real wheel events, as the Auto button sends them, until the page stops moving.
+                guard AutoScroll.isAllowed(prompt: false) else { return check("auto-scroll: skipped, no Accessibility", true) }
+                let center = CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
+                var still = 0
                 stitcher.add(try await grab())
-                if y >= documentHeight - size.height { break }
-                y = min(y + 170, documentHeight - size.height)
-                scroll.contentView.scroll(to: CGPoint(x: 0, y: y))
-                scroll.reflectScrolledClipView(scroll.contentView)
-                try? await Task.sleep(for: .milliseconds(120))
+                for _ in 0..<80 where still < AutoScroll.endAfter {
+                    AutoScroll.step(at: center, points: size.height * AutoScroll.stepShare)
+                    try? await Task.sleep(for: .milliseconds(160))
+                    still = stitcher.add(try await grab()) == .unchanged ? still + 1 : 0
+                }
+            } else {
+                var y: CGFloat = 0
+                while true {
+                    stitcher.add(try await grab())
+                    if y >= documentHeight - size.height { break }
+                    y = min(y + 170, documentHeight - size.height)
+                    scroll.contentView.scroll(to: CGPoint(x: 0, y: y))
+                    scroll.reflectScrolledClipView(scroll.contentView)
+                    try? await Task.sleep(for: .milliseconds(120))
+                }
             }
             guard let image = stitcher.image() else { return check("scrolling capture: no image", false) }
             dump(image, scale: scale, as: "scrolling.png")
             let expected = Int(documentHeight * scale)
-            check("scrolling capture: \(image.height) px tall (document \(expected) px)", abs(image.height - expected) <= Int(8 * scale))
+            check("\(auto ? "auto-scroll" : "scrolling") capture: \(image.height) px tall (document \(expected) px)",
+                  abs(image.height - expected) <= Int(8 * scale))
             // The exact height above proves nothing was skipped or doubled; OCR confirms the
             // content is really there. Vision misreads a few small 1× digits, hence 90 %.
             let read = await TextRecognizer.text(in: image)
