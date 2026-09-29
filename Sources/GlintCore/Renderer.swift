@@ -168,7 +168,8 @@ public enum Renderer {
         ctx.restoreGState()
     }
 
-    private static let ciContext = CIContext(options: [.cacheIntermediates: false])
+    // CIContext is documented thread-safe; older SDKs just don't mark it Sendable.
+    nonisolated(unsafe) private static let ciContext = CIContext(options: [.cacheIntermediates: false])
 
     /// The area a spotlight dims: the image minus the union of the spotlit rectangles, so
     /// two spotlights each leave the other bright instead of dimming it.
