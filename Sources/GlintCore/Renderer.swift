@@ -26,10 +26,14 @@ public enum Renderer {
     /// Draws every annotation into an existing top-left-origin context — the editor
     /// canvas uses this so what you see while editing is exactly what gets exported.
     public static func draw(_ annotations: [Annotation], over image: CGImage, in ctx: CGContext) {
-        // The dim goes under everything else, so arrows and labels stay bright on top of it.
+        // Three layers: what changes the screenshot itself (pixelate, blur, black-out,
+        // highlight), then the spotlight dim over all of that, then the marks on top — so a
+        // redaction outside the spotlight is dimmed like the rest, and arrows stay bright.
+        let (inImage, onTop) = (annotations.filter(\.kind.altersImage), annotations.filter { !$0.kind.altersImage })
+        for annotation in inImage { draw(annotation, over: image, ctx) }
         spotlight(annotations.compactMap { if case let .spotlight(r) = $0.kind { r } else { nil } },
                   size: CGSize(width: image.width, height: image.height), ctx)
-        for annotation in annotations { draw(annotation, over: image, ctx) }
+        for annotation in onTop { draw(annotation, over: image, ctx) }
     }
 
     // MARK: - Annotations
@@ -362,6 +366,12 @@ struct BlockGrid {
                        space: CGColorSpace(name: CGColorSpace.sRGB)!,
                        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
                        provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+    }
+}
+
+extension Annotation.Kind {
+    var altersImage: Bool {
+        switch self { case .pixelate, .blur, .filledRectangle, .highlight: true; default: false }
     }
 }
 

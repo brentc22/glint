@@ -42,7 +42,7 @@ enum Capturer {
     static func captureDisplays() async throws -> [DisplayShot] {
         guard await hasPermission() else { throw CaptureError.permissionDenied }
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        let own = content.windows.filter { $0.owningApplication?.processID == getpid() }
+        let own = hidden(in: content)
         let jobs = NSScreen.screens.compactMap { screen -> (NSScreen, SCContentFilter, SCStreamConfiguration)? in
             guard let id = screen.displayID, let display = content.displays.first(where: { $0.displayID == id }) else { return nil }
             let config = SCStreamConfiguration()
@@ -75,8 +75,7 @@ enum Capturer {
         guard let id = screen.displayID, let display = content.displays.first(where: { $0.displayID == id }) else {
             throw CaptureError.permissionDenied
         }
-        let own = includeOwnWindows ? [] : content.windows.filter { $0.owningApplication?.processID == getpid() }
-        let filter = SCContentFilter(display: display, excludingWindows: own)
+        let filter = SCContentFilter(display: display, excludingWindows: hidden(in: content, keepOwn: includeOwnWindows))
         let config = SCStreamConfiguration()
         config.sourceRect = rect
         config.width = Int(rect.width * screen.backingScaleFactor)
@@ -84,6 +83,20 @@ enum Capturer {
         config.showsCursor = false
         config.captureResolution = .best
         return { try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) }
+    }
+
+    /// What a display capture leaves out: Glint's own windows (unless `keepOwn` says which
+    /// stay — a recording's click rings and webcam bubble belong in the video), and with
+    /// "Hide desktop icons" on, Finder's icons and the desktop widgets. Unlike toggling
+    /// Finder's CreateDesktop setting, which restarts Finder, this only touches the capture:
+    /// your desktop stays as it is.
+    static func hidden(in content: SCShareableContent, keepOwn: Bool = false, keep: Set<CGWindowID> = []) -> [SCWindow] {
+        let icons = Int(CGWindowLevelForKey(.desktopIconWindow))
+        return content.windows.filter { w in
+            if w.owningApplication?.processID == getpid() { return !keepOwn && !keep.contains(w.windowID) }
+            // Icons sit at the desktop-icon level, widgets a step above it; both under every app window.
+            return Prefs.hideDesktopIcons && (icons...icons + 10).contains(w.windowLayer)
+        }
     }
 
     /// One window on its own — even when other windows cover it — with transparent

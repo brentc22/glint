@@ -70,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let tab = i + 1 < args.count ? Int(args[i + 1]) : nil
             SettingsWindow.show(tab: tab) { [weak self] in self?.registerShortcuts() ?? [] }
         }
+        if args.contains("--history") { openHistory() }
         // `--select-demo <image>`: the selection overlay over that image instead of a real
         // screen grab — exercises the whole capture flow without the permission.
         if let i = args.firstIndex(of: "--select-demo"), i + 1 < args.count, let screen = NSScreen.main,
@@ -118,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         recent.image = NSImage(systemSymbolName: "clock", accessibilityDescription: nil)
         recent.submenu = recentMenu()
         menu.addItem(recent)
+        menu.addItem(item("Capture History…", #selector(openHistory), key: "h", symbol: "square.grid.2x2"))
         menu.addItem(item("Show Screenshots Folder", #selector(openFolder), symbol: "folder"))
         menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(openSettings), key: ",", symbol: "gearshape"))
@@ -192,6 +194,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openRecent(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL, let capture = Self.load(url, keepFile: true) else { return }
         edit(capture)
+    }
+
+    @objc private func openHistory() {
+        HistoryWindow.show(open: { [weak self] url in
+            // Videos and GIFs open in their own app; the editor takes stills.
+            guard !["mp4", "gif"].contains(url.pathExtension.lowercased()), let capture = Self.load(url, keepFile: true) else {
+                NSWorkspace.shared.open(url)
+                return
+            }
+            self?.edit(capture)
+        }, pin: { [weak self] url in
+            if let capture = Self.load(url, keepFile: true) { self?.pin(capture) }
+        })
     }
 
     @objc private func openFolder() {
@@ -343,7 +358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Capture.playShutter()
         Task {
             if Prefs.autoRedact { _ = await Self.redactInPlace(capture) }
-            if Prefs.autoSave { _ = try? capture.save() }
+            if Prefs.autoSave { _ = try? capture.save(); HistoryWindow.refresh() }
             if Prefs.copyToClipboard { capture.copy() }
             if Prefs.openEditor { edit(capture) } else if Prefs.showQuickAccess { quickAccess.show(capture, on: screen, from: source) }
         }
@@ -351,6 +366,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Recordings skip what only makes sense for stills: redaction, the editor, image copy.
     private func finishRecording(_ capture: Capture, screen: NSScreen?) {
+        HistoryWindow.refresh()
         if Prefs.copyToClipboard { capture.copy() }
         quickAccess.show(capture, on: screen)
     }

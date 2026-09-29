@@ -35,6 +35,7 @@ final class SettingsModel: ObservableObject {
     @Published var autoSave = Prefs.autoSave { didSet { d.set(autoSave, forKey: "autoSave") } }
     @Published var showCursor = Prefs.showCursor { didSet { d.set(showCursor, forKey: "showCursor") } }
     @Published var windowShadow = Prefs.windowShadow { didSet { d.set(windowShadow, forKey: "windowShadow") } }
+    @Published var hideDesktopIcons = Prefs.hideDesktopIcons { didSet { d.set(hideDesktopIcons, forKey: "hideDesktopIcons") } }
 
     // Files
     @Published var saveFolder = Prefs.saveFolder
@@ -181,9 +182,14 @@ private struct CapturePane: View {
                 }
                 Toggle("Open the editor right away", isOn: $model.openEditor)
             }
-            Section("Screenshots") {
+            Section {
                 Toggle("Include the mouse pointer", isOn: $model.showCursor)
                 Toggle("Add a shadow to window captures", isOn: $model.windowShadow)
+                Toggle("Hide desktop icons and widgets", isOn: $model.hideDesktopIcons)
+            } header: {
+                Text("Screenshots")
+            } footer: {
+                note("Only in screenshots and recordings. Your desktop stays as it is, and Finder isn't restarted.")
             }
         }
         .formStyle(.grouped)

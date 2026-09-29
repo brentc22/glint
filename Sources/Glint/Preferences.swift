@@ -37,6 +37,7 @@ enum Prefs {
             "playSound": true,
             "showCursor": false,
             "windowShadow": true,
+            "hideDesktopIcons": false,
             "format": Format.png.rawValue,
             "downscaleRetina": false,
             "filenamePrefix": "Glint",
@@ -63,6 +64,7 @@ enum Prefs {
     static var playSound: Bool { d.bool(forKey: "playSound") }
     static var showCursor: Bool { d.bool(forKey: "showCursor") }
     static var windowShadow: Bool { d.bool(forKey: "windowShadow") }
+    static var hideDesktopIcons: Bool { d.bool(forKey: "hideDesktopIcons") }
     static var format: Format { Format(rawValue: d.string(forKey: "format") ?? "") ?? .png }
     static var downscaleRetina: Bool { d.bool(forKey: "downscaleRetina") }
     static var filenamePrefix: String { d.string(forKey: "filenamePrefix") ?? "Glint" }

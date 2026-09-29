@@ -20,6 +20,14 @@ public struct RGBA: Equatable, Hashable, Sendable, Codable {
     public static let black = RGBA(0.1, 0.1, 0.1)
     public static let white = RGBA(1, 1, 1)
     public static let palette: [RGBA] = [.red, .orange, .yellow, .green, .blue, .purple, .black, .white]
+
+    public var name: String {
+        switch self {
+        case .red: "Red"; case .orange: "Orange"; case .yellow: "Yellow"; case .green: "Green"
+        case .blue: "Blue"; case .purple: "Purple"; case .black: "Black"; case .white: "White"
+        default: "Custom"
+        }
+    }
 }
 
 /// One mark on a screenshot. Geometry is in image pixels, origin top-left — the

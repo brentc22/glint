@@ -157,8 +157,10 @@ T.test("spotlight dims outside its box, and two spotlights don't dim each other"
     T.equal(pixel(out, 50, 50)[0], 255, "inside the first:")
     T.equal(pixel(out, 120, 120)[0], 255, "inside the second:")
     T.expect(pixel(out, 300, 150)[0] < 140, "outside is dimmed (\(pixel(out, 300, 150)[0]))")
-    let arrowOnTop = Renderer.render(white, annotations: [Annotation(.filledRectangle(CGRect(x: 300, y: 100, width: 20, height: 20)), color: .white)] + spots)!
+    let arrowOnTop = Renderer.render(white, annotations: [Annotation(.line(from: CGPoint(x: 290, y: 110), to: CGPoint(x: 330, y: 110)), color: .white, lineWidth: 10)] + spots)!
     T.equal(pixel(arrowOnTop, 310, 110)[0], 255, "marks stay bright over the dim, whatever their order:")
+    let redacted = Renderer.render(white, annotations: spots + [Annotation(.pixelate(CGRect(x: 300, y: 100, width: 40, height: 40)))])!
+    T.expect(pixel(redacted, 310, 110)[0] < 140, "a redaction outside the spotlight is dimmed too")
 }
 T.test("crop and backdrop change the output size") {
     let cropped = Renderer.render(white, annotations: [], crop: CGRect(x: 10, y: 10, width: 100, height: 50))!
@@ -396,6 +398,20 @@ T.test("tall images are read in overlapping tiles") {
     T.equal(tiles.first?.minY, 0)
     T.equal(tiles.last?.maxY, 5000, "reaches the bottom:")
     T.expect(zip(tiles, tiles.dropFirst()).allSatisfy { $0.maxY - $1.minY == 80 }, "80 px overlaps")
+}
+
+print("HistorySearch")
+T.test("every word must match the name or the text, ignoring case and accents") {
+    T.expect(HistorySearch.matches("factuur acme", name: "Glint 2026-09-24.png", text: "Factuur 2291\nACME bv"), "words on two lines")
+    T.expect(HistorySearch.matches("cafe", name: "x.png", text: "Café Central"), "accents")
+    T.expect(HistorySearch.matches("2026-09", name: "Glint 2026-09-24 at 13.04.12.png", text: nil), "file name, no text yet")
+    T.expect(!HistorySearch.matches("factuur zeta", name: "x.png", text: "Factuur 2291"), "one word missing")
+    T.expect(HistorySearch.matches("   ", name: "x.png", text: nil), "blank query shows all")
+}
+T.test("a file edited after capture gets a new cache key") {
+    let path = "/tmp/a.png"
+    T.expect(HistorySearch.key(path: path, modified: Date(timeIntervalSince1970: 100))
+             != HistorySearch.key(path: path, modified: Date(timeIntervalSince1970: 200)), "keys differ")
 }
 
 print("FileNaming")
