@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Glint updates itself. Once a day it asks GitHub whether there's a newer version and
+  offers to install it: Install and Relaunch, Later, or Skip This Version. The download is
+  checked (app, version, signature) before it replaces anything. Settings → General →
+  Updates turns the check off or checks right away.
+- With the `Glint Self-Signed` identity in your keychain, updates are re-signed with it, so
+  Screen Recording permission survives them.
+
 ## 0.4.0 — 2026-09-29
 
 Everything CleanShot X has that Glint didn't, and a few things it doesn't.

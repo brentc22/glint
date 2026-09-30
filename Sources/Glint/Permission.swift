@@ -13,7 +13,7 @@ enum Permission {
             Turn on Glint in System Settings → Privacy & Security → Screen & System Audio Recording, \
             then quit and reopen Glint.
 
-            Everything stays on your Mac: Glint has no network access and no analytics.
+            Everything stays on your Mac: Glint has no analytics and uploads nothing unless you set up share links.
             """
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Cancel")

@@ -58,6 +58,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         registerShortcuts()
+        Updater.shared.start()
+        showSettingsIfUpdateLostPermission()
 
         // `--edit <image>` and `--quick-access <image>` open an existing image straight
         // into the editor or the overlay — for development and README screenshots,
@@ -99,10 +101,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// A release build is ad-hoc signed, and macOS ties the Screen Recording grant to the
+    /// old binary's signature. Right after an update that lost it, open the General tab,
+    /// whose banner links to System Settings. The swap script relaunches with `--after-update`.
+    private func showSettingsIfUpdateLostPermission() {
+        guard CommandLine.arguments.contains("--after-update") else { return }
+        Task {
+            guard !(await Capturer.hasPermission()) else { return }
+            SettingsWindow.show(tab: 0) { [weak self] in self?.registerShortcuts() ?? [] }
+        }
+    }
+
     // MARK: Menu
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        if let version = Updater.shared.available?.version {
+            menu.addItem(item("Update Available: Glint \(version)…", #selector(showUpdate), symbol: "arrow.down.circle.fill"))
+            menu.addItem(.separator())
+        }
         for command in CaptureCommand.allCases {
             let item = NSMenuItem(title: command.title, action: #selector(runCommand(_:)), keyEquivalent: command.shortcut?.keyEquivalent ?? "")
             item.keyEquivalentModifierMask = command.shortcut?.modifiers ?? []
@@ -224,6 +241,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         try? FileManager.default.createDirectory(at: Prefs.saveFolder, withIntermediateDirectories: true)
         NSWorkspace.shared.open(Prefs.saveFolder)
     }
+
+    @objc private func showUpdate() { Updater.shared.offerAvailable() }
 
     @objc private func openSettings() {
         SettingsWindow.show(onShortcutsChanged: { [weak self] in self?.registerShortcuts() ?? [] })

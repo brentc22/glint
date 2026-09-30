@@ -222,9 +222,46 @@ private struct GeneralPane: View {
                 Toggle("Make a camera sound", isOn: $model.playSound)
                 Toggle("Start Glint when my Mac starts", isOn: $model.launchAtLogin)
             }
+            UpdatesSection()
         }
         .formStyle(.grouped)
         .task { model.hasPermission = await Capturer.hasPermission() }
+    }
+}
+
+private struct UpdatesSection: View {
+    @ObservedObject var updater = Updater.shared
+
+    var body: some View {
+        Section {
+            Toggle("Look for new versions every day", isOn: $updater.automaticallyChecks)
+            LabeledContent {
+                if let version = updater.available?.version {
+                    Button("Install Glint \(version)…") { updater.offerAvailable() }
+                } else {
+                    Button("Check Now") { updater.check(userInitiated: true) }.disabled(updater.isBusy)
+                }
+            } label: {
+                Text(status).foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Updates")
+        } footer: {
+            note("Asks GitHub whether there's a newer Glint. Nothing about you or your screenshots is sent.")
+        }
+    }
+
+    /// "Version 0.4.0 · checked today at 15:42", or the version that is waiting.
+    private var status: String {
+        let current = "Version \(updater.currentVersion)"
+        if updater.isBusy { return "\(current) · checking…" }
+        if let version = updater.available?.version { return "\(current) · Glint \(version) is out" }
+        guard let last = updater.lastCheck else { return "\(current) · not checked yet" }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.doesRelativeDateFormatting = true
+        return "\(current) · checked \(formatter.string(from: last))"
     }
 }
 
@@ -383,7 +420,7 @@ private struct MorePane: View {
             Section {
                 DisclosureGroup("Share links (for experts)") {
                     VStack(alignment: .leading, spacing: 8) {
-                        note("Put screenshots online in your own storage (Cloudflare R2, Amazon S3…) and get a link to share. Until this is filled in, Glint never uses the internet.")
+                        note("Put screenshots online in your own storage (Cloudflare R2, Amazon S3…) and get a link to share. Until this is filled in, Glint never uploads anything.")
                         TextField("Endpoint", text: $model.uploadEndpoint, prompt: Text("https://<account>.r2.cloudflarestorage.com"))
                         TextField("Region", text: $model.uploadRegion, prompt: Text("auto"))
                         TextField("Bucket", text: $model.uploadBucket)
@@ -413,7 +450,7 @@ private struct AboutPane: View {
             Text("Glint").font(.title.bold())
             Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")")
                 .foregroundStyle(.secondary)
-            Text("Free and open source. No account, no tracking, no network access.")
+            Text("Free and open source. No account, no tracking. Online only to look for updates.")
                 .multilineTextAlignment(.center)
             HStack(spacing: 16) {
                 Link("GitHub", destination: URL(string: "https://github.com/brentc22/glint")!)

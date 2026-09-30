@@ -80,8 +80,9 @@ annotation: move it, delete it, or add more.
 - Retina-aware: files carry the right DPI, so a 2× shot shows at its real size in
   Keynote, Pages and Preview.
 
-**Private by design**: no account, no analytics, and no network access unless you set up
-share links yourself. OCR and redaction run on your Mac.
+**Private by design**: no account, no analytics, and no uploads unless you set up share
+links yourself. The only request Glint makes on its own is a daily update check (see
+[Updates](#updates)). OCR and redaction run on your Mac.
 
 **Light**: a small app using about 45 MB of memory and 0 % CPU when idle.
 
@@ -156,6 +157,25 @@ xattr -dr com.apple.quarantine /Applications/Glint.app
 On first capture macOS asks for **Screen Recording** permission. Allow it in System
 Settings → Privacy & Security → Screen & System Audio Recording, then reopen Glint.
 
+### Updates
+
+Glint checks GitHub Releases once a day for a newer version. When there is one, it shows
+the release notes with **Install and Relaunch** (download, check and swap the app, then
+relaunch), **Later**, and **Skip This Version** (stay quiet about it until you check
+yourself). A waiting update also shows at the top of the menu bar menu. Settings → General
+→ Updates turns the daily check off and has **Check Now**.
+
+Before swapping anything in, Glint checks that the download is `com.brentc22.Glint`, the
+version the release promised, and that its code signature is intact
+(`codesign --verify --deep --strict`). If any of that fails, or `/Applications` isn't
+writable, it offers the download page instead.
+
+Release builds are ad-hoc signed, so macOS treats a new version as a new app and asks for
+Screen Recording again; right after such an update Glint opens its settings on the
+permission banner. If the `Glint Self-Signed` identity from
+`scripts/make-signing-cert.sh` is in your keychain, Glint re-signs the checked update with
+it, and the permission carries over.
+
 ### Build from source
 
 Only the Xcode Command Line Tools are needed, no full Xcode.
@@ -187,7 +207,7 @@ make run                       # build, install to /Applications, launch
 ## Development
 
 ```sh
-make test                                         # 44 unit tests: matcher, renderer, stitcher, undo, OCR, GIF, SigV4…
+make test                                         # 54 unit tests: matcher, renderer, stitcher, undo, OCR, GIF, SigV4, updater…
 make bundle                                       # Glint.app in the repo root
 Glint.app/Contents/MacOS/Glint --self-test        # every capture path for real, see below
 open Glint.app --args --edit docs/demo-input.png  # editor on the demo image, no permission needed

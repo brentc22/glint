@@ -4,8 +4,8 @@ import Security
 import UniformTypeIdentifiers
 
 /// Uploads a capture to your own S3-compatible bucket (Cloudflare R2, S3, B2, MinIO) and
-/// copies a link to it. Off until you fill in Settings → More → Share links; until then Glint makes
-/// no network requests at all. The secret key lives in the Keychain, not in preferences.
+/// copies a link to it. Off until you fill in Settings → More → Share links; until then Glint
+/// uploads nothing (its only request is the daily update check). The secret key lives in the Keychain, not in preferences.
 @MainActor
 enum Uploader {
     struct Config {
