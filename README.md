@@ -16,7 +16,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/brentc22/glint?style=flat-square&color=2f9e44" alt="MIT license"></a>
 </p>
 
-<p align="center"><a href="#install"><b>Install with Homebrew</b></a></p>
+<p align="center"><code>brew install --cask brentc22/tap/glint</code></p>
 
 <p align="center">
   <img src="docs/redact.png" width="720" alt="Glint editor after one click on Redact: email, phone, IBAN, card number, API key and IP address are pixelated; name and plan are untouched">
@@ -155,8 +155,6 @@ CleanShot X is excellent. Here's where each one stands today:
 ## Install
 
 ```sh
-brew tap brentc22/tap
-brew trust brentc22/tap
 brew install --cask brentc22/tap/glint
 ```
 
