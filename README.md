@@ -10,6 +10,15 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/brentc22/glint/releases/latest"><img src="https://img.shields.io/github/v/release/brentc22/glint?style=flat-square&color=4c6ef5" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/macOS-14%2B-111?style=flat-square&logo=apple" alt="macOS 14 or later">
+  <img src="https://img.shields.io/badge/Swift-6-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 6">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/brentc22/glint?style=flat-square&color=2f9e44" alt="MIT license"></a>
+</p>
+
+<p align="center"><code>brew install --cask brentc22/tap/glint</code></p>
+
+<p align="center">
   <img src="docs/redact.png" width="720" alt="Glint editor after one click on Redact: email, phone, IBAN, card number, API key and IP address are pixelated; name and plan are untouched">
 </p>
 
@@ -145,7 +154,11 @@ CleanShot X is excellent. Here's where each one stands today:
 
 ## Install
 
-Download `Glint.zip` from the [latest release](../../releases/latest), unzip, and move
+```sh
+brew install --cask brentc22/tap/glint
+```
+
+Or download `Glint.zip` from the [latest release](../../releases/latest), unzip, and move
 `Glint.app` to `/Applications`. Requires macOS 14 Sonoma or later. Universal binary.
 
 Glint isn't notarized yet, so macOS blocks the first launch. Right-click → **Open**, or:
@@ -243,7 +256,8 @@ Sources/
 - [x] Bring-your-own-bucket upload (S3 / R2) for share links, opt-in
 - [ ] Measure tool (distances between UI elements)
 - [ ] Combine several screenshots on one canvas
-- [ ] Notarized builds and a Homebrew cask
+- [x] Homebrew cask
+- [ ] Notarized builds
 
 Ideas and PRs welcome. Open an issue first for anything big.
 
