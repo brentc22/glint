@@ -10,13 +10,58 @@ permissions:
 jobs:
   release:
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 25
+    env:
+      KEYCHAIN: ${{ runner.temp }}/glint-signing.keychain-db
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check the tag matches the app version
+        run: |
+          plist_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          if [ "${GITHUB_REF_NAME#v}" != "$plist_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match CFBundleShortVersionString $plist_version"
+            exit 1
+          fi
+
+      # Releases are signed with the same "Glint Self-Signed" identity as local builds, so
+      # an installed copy accepts the update and keeps its Screen Recording grant. The
+      # identity lives in two secrets: see "Releasing" in the README.
+      - name: Import the signing identity
+        env:
+          GLINT_SIGNING_P12: ${{ secrets.GLINT_SIGNING_P12 }}
+          GLINT_SIGNING_PASSWORD: ${{ secrets.GLINT_SIGNING_PASSWORD }}
+        run: |
+          if [ -z "$GLINT_SIGNING_P12" ] || [ -z "$GLINT_SIGNING_PASSWORD" ]; then
+            echo "::error::GLINT_SIGNING_P12 and GLINT_SIGNING_PASSWORD must be set; releases are never ad-hoc signed."
+            exit 1
+          fi
+          keychain_password="$(uuidgen)"
+          echo "$GLINT_SIGNING_P12" | base64 --decode > "$RUNNER_TEMP/glint-signing.p12"
+          security create-keychain -p "$keychain_password" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$keychain_password" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/glint-signing.p12" -k "$KEYCHAIN" -P "$GLINT_SIGNING_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$KEYCHAIN"
+          # Put it first in the search list, next to the login keychain.
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/glint-signing.p12"
+          security find-identity -p codesigning "$KEYCHAIN"
+
       - name: Test
         run: swift run GlintTests
+
       - name: Build universal app
-        run: make zip
+        run: make zip GLINT_SIGN_IDENTITY="Glint Self-Signed"
+
+      - name: Check the signing identity
+        run: |
+          codesign --verify --deep --strict Glint.app
+          # The signer is pinned in the repo: a different certificate would make every
+          # installed copy refuse the update.
+          codesign --verify --strict -R "=$(cat Resources/designated-requirement.txt)" Glint.app \
+            || { echo "::error::Glint.app is not signed with the pinned identity (Resources/designated-requirement.txt)"; exit 1; }
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -24,3 +69,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" Glint.zip \
             --title "Glint ${GITHUB_REF_NAME#v}" \
             --notes-file <(awk '/^## /{n++} n==1' CHANGELOG.md)
+
+      - name: Remove the keychain
+        if: always()
+        run: security delete-keychain "$KEYCHAIN" || true
