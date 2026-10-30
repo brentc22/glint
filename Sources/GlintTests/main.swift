@@ -1,6 +1,7 @@
 import CoreGraphics
 import ImageIO
 import Foundation
+import Security
 @testable import GlintCore
 
 // Line-buffer stdout so CI logs show which test was running if one hangs.
@@ -493,7 +494,7 @@ T.test("versions: what isn't a version is refused") {
 }
 
 func releaseJSON(tag: String, prerelease: Bool = false, assets: [String] = ["Glint.zip"]) -> Data {
-    let list = assets.map { #"{"name":"\#($0)","browser_download_url":"https://example.com/\#($0)"}"# }
+    let list = assets.map { #"{"name":"\#($0)","browser_download_url":"https://github.com/brentc22/glint/releases/download/v0.5.0/\#($0)"}"# }
     return Data(#"""
     {"tag_name":"\#(tag)","html_url":"https://github.com/brentc22/glint/releases/tag/\#(tag)",
      "body":"- New icon","draft":false,"prerelease":\#(prerelease),"assets":[\#(list.joined(separator: ","))],
@@ -532,12 +533,48 @@ T.test("update policy: at most one check a day") {
     T.expect(UpdatePolicy.isCheckDue(lastCheck: now.addingTimeInterval(-25 * 3600), now: now), "25 hours ago")
 }
 
-/// Builds a signed fake app and zips it the way a release zip is made.
-func fakeRelease(in dir: URL, bundleID: String = "com.brentc22.Glint", version: String = "0.5.0",
-                 tamper: Bool = false) throws -> URL {
+T.test("download URLs: only https on GitHub's hosts") {
+    func ok(_ s: String) -> Bool {
+        let json = Data(#"{"tag_name":"v1.0.0","html_url":"https://github.com/brentc22/glint","body":null,"draft":false,"prerelease":false,"assets":[{"name":"Glint.zip","browser_download_url":"\#(s)"}]}"#.utf8)
+        return (try? Release.decode(json))?.zipURL(appName: "Glint") != nil
+    }
+    T.expect(ok("https://github.com/brentc22/glint/releases/download/v1/Glint.zip"), "github.com")
+    T.expect(ok("https://objects.githubusercontent.com/x/Glint.zip"), "objects host")
+    T.expect(!ok("http://github.com/brentc22/glint/releases/download/v1/Glint.zip"), "plain http")
+    T.expect(!ok("https://evil.example.com/Glint.zip"), "another host")
+    T.expect(!ok("https://github.com.evil.example.com/Glint.zip"), "look-alike host")
+    T.expect(!ok("file:///tmp/Glint.zip"), "file URL")
+}
+
+/// The designated requirement of any signed code, ad-hoc included (the installer itself
+/// only ever uses the running app's certificate-based one).
+func anyRequirement(of app: URL) -> SecRequirement? {
+    var code: SecStaticCode?
+    var req: SecRequirement?
+    guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code,
+          SecCodeCopyDesignatedRequirement(code, [], &req) == errSecSuccess else { return nil }
+    return req
+}
+
+let glintID = "com.brentc22.Glint"
+/// A well-formed requirement for Glint's bundle id but a certificate nobody has.
+func otherIdentity() -> SecRequirement {
+    UpdateInstaller.requirement(fromText: "identifier \"\(glintID)\" and certificate leaf = H\"0123456789abcdef0123456789abcdef01234567\"")!
+}
+
+T.test("requirements: built from text, certificate-based only for the running app") {
+    T.expect(UpdateInstaller.requirement(fromText: "garbage ((") == nil, "invalid text")
+    T.expect(UpdateInstaller.requirementText(otherIdentity())?.contains("certificate leaf") == true, "round trip")
+    // The test binary is ad-hoc or unsigned, so there is no certificate to compare against.
+    T.expect(UpdateInstaller.runningRequirement() == nil, "an ad-hoc running copy has no usable requirement")
+}
+
+/// Builds an ad-hoc signed fake app and zips it the way a release zip is made.
+func fakeRelease(in dir: URL, bundleID: String = glintID, version: String = "0.5.0",
+                 tamper: Bool = false, appName: String = "Glint.app") throws -> (zip: URL, app: URL) {
     let fm = FileManager.default
     try? fm.removeItem(at: dir)
-    let app = dir.appendingPathComponent("build/Glint.app")
+    let app = dir.appendingPathComponent("build").appendingPathComponent(appName)
     try fm.createDirectory(at: app.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
     try fm.copyItem(atPath: "/usr/bin/true", toPath: app.appendingPathComponent("Contents/MacOS/Glint").path)
     let info: NSDictionary = ["CFBundleIdentifier": bundleID, "CFBundleShortVersionString": version,
@@ -549,23 +586,28 @@ func fakeRelease(in dir: URL, bundleID: String = "com.brentc22.Glint", version: 
     }
     let zip = dir.appendingPathComponent("Glint.zip")
     try UpdateInstaller.run("/usr/bin/ditto", ["-c", "-k", "--keepParent", app.path, zip.path])
-    return zip
+    return (zip, app)
 }
 
 let updateDir = updateTmp.appendingPathComponent("update")
 
-func prepareError(resign: String? = nil, _ zip: () throws -> URL) -> UpdateError? {
+/// Runs `prepare` on `release`; without `requirement` it requires the fake app's own
+/// (ad-hoc) designated requirement, i.e. "the same build".
+func prepareError(requirement: SecRequirement? = nil, _ release: () throws -> (zip: URL, app: URL)) -> UpdateError? {
     do {
-        _ = try UpdateInstaller.prepare(zip: try zip(), in: updateDir, bundleID: "com.brentc22.Glint",
-                                        version: AppVersion("0.5.0")!, resignWith: resign)
+        let built = try release()
+        guard let required = requirement ?? anyRequirement(of: built.app) else { return .command("requirement", status: -1) }
+        _ = try UpdateInstaller.prepare(zip: built.zip, in: updateDir, bundleID: glintID,
+                                        version: AppVersion("0.5.0")!, requiredRequirement: required)
         return nil
     } catch { return error as? UpdateError }
 }
 
-T.test("installer: a signed app with the right id and version is accepted") {
-    let zip = try fakeRelease(in: updateDir)
-    let app = try UpdateInstaller.prepare(zip: zip, in: updateDir, bundleID: "com.brentc22.Glint",
-                                          version: AppVersion("0.5.0")!)
+T.test("installer: a signed app with the right id, version and identity is accepted") {
+    let built = try fakeRelease(in: updateDir)
+    guard let required = anyRequirement(of: built.app) else { T.expect(false, "no requirement"); return }
+    let app = try UpdateInstaller.prepare(zip: built.zip, in: updateDir, bundleID: glintID,
+                                          version: AppVersion("0.5.0")!, requiredRequirement: required)
     T.equal(app.lastPathComponent, "Glint.app")
 }
 
@@ -574,21 +616,86 @@ T.test("installer: another app, another version or a broken signature is refused
             .wrongApp(bundleID: "com.example.Evil"))
     T.equal(prepareError { try fakeRelease(in: updateDir, version: "0.4.9") },
             .wrongVersion(found: "0.4.9", expected: "0.5.0"))
-    let tampered = prepareError { try fakeRelease(in: updateDir, tamper: true) }
+    let tampered = prepareError(requirement: otherIdentity()) { try fakeRelease(in: updateDir, tamper: true) }
     if case .invalidSignature = tampered { T.expect(true, "") } else { T.expect(false, "got \(String(describing: tampered))") }
 }
 
-T.test("installer: re-signing happens only after the check, so it can't hide tampering") {
-    let tampered = prepareError(resign: "-") { try fakeRelease(in: updateDir, tamper: true) }
-    if case .invalidSignature = tampered { T.expect(true, "") } else { T.expect(false, "got \(String(describing: tampered))") }
-    let app = try UpdateInstaller.prepare(zip: try fakeRelease(in: updateDir), in: updateDir,
-                                          bundleID: "com.brentc22.Glint", version: AppVersion("0.5.0")!, resignWith: "-")
-    try UpdateInstaller.run("/usr/bin/codesign", ["--verify", "--strict", app.path])
-    T.expect(true, "re-signed app verifies")
+T.test("installer: an app signed by a different identity is refused") {
+    T.equal(prepareError(requirement: otherIdentity()) { try fakeRelease(in: updateDir) },
+            .invalidSignature("signed by a different identity"))
 }
 
-T.test("installer: an identity that isn't in the keychain isn't found") {
-    T.expect(!UpdateInstaller.hasSigningIdentity("Glint Test \(UUID().uuidString)"), "made-up identity")
+/// Zips the entries (a directory each, or a symlink to the given target) as one archive.
+func zipOf(_ dirName: String, entries: [String: String?]) throws -> URL {
+    let fm = FileManager.default
+    let dir = updateTmp.appendingPathComponent(dirName)
+    try? fm.removeItem(at: dir)
+    let root = dir.appendingPathComponent("root")
+    try fm.createDirectory(at: root, withIntermediateDirectories: true)
+    for (name, link) in entries {
+        if let link {
+            try fm.createSymbolicLink(atPath: root.appendingPathComponent(name).path, withDestinationPath: link)
+        } else {
+            try fm.createDirectory(at: root.appendingPathComponent(name).appendingPathComponent("Contents"),
+                                   withIntermediateDirectories: true)
+        }
+    }
+    let zip = dir.appendingPathComponent("a.zip")
+    try UpdateInstaller.run("/usr/bin/ditto", ["-c", "-k", root.path, zip.path])
+    return zip
+}
+
+func prepareArchiveError(_ zip: URL) -> UpdateError? {
+    do {
+        _ = try UpdateInstaller.prepare(zip: zip, in: updateTmp.appendingPathComponent("arch"), bundleID: glintID,
+                                        version: AppVersion("0.5.0")!, requiredRequirement: otherIdentity())
+        return nil
+    } catch { return error as? UpdateError }
+}
+
+T.test("installer: the archive must hold exactly one real directory named Glint.app") {
+    T.equal(prepareArchiveError(try zipOf("a1", entries: ["Other.app": nil])), .noAppInArchive)
+    T.equal(prepareArchiveError(try zipOf("a2", entries: ["Glint.app": nil, "Other.app": nil])), .noAppInArchive)
+    T.equal(prepareArchiveError(try zipOf("a3", entries: ["Glint.app": "/Applications/Safari.app"])), .noAppInArchive)
+    T.equal(prepareArchiveError(try zipOf("a4", entries: ["stuff.txt": "/etc/hosts"])), .noAppInArchive)
+}
+
+T.test("installer: an app whose name carries a forged requirement line is refused (regression)") {
+    // A check that grepped `codesign -d -r-` output could be fooled by a bundle whose name
+    // contains a newline and a `designated => …` line. prepare never reads tool output.
+    let legit = try fakeRelease(in: updateDir.appendingPathComponent("legit"))
+    guard let required = anyRequirement(of: legit.app), let text = UpdateInstaller.requirementText(required) else {
+        T.expect(false, "no requirement"); return
+    }
+    let evilName = "X\ndesignated => \(text)\nY.app"
+    let evil = prepareError(requirement: required) {
+        try fakeRelease(in: updateDir.appendingPathComponent("evil"), appName: evilName)
+    }
+    T.equal(evil, .noAppInArchive)
+    // And with the name check out of the picture, validation is Security.framework's call:
+    let forged = prepareError(requirement: otherIdentity()) { try fakeRelease(in: updateDir.appendingPathComponent("forged")) }
+    T.equal(forged, .invalidSignature("signed by a different identity"))
+}
+
+T.test("installer: a failed swap restores and relaunches the old app") {
+    let fm = FileManager.default
+    let dir = updateTmp.appendingPathComponent("failswap")
+    try? fm.removeItem(at: dir)
+    let installed = dir.appendingPathComponent("Applications/Glint.app")
+    let missing = dir.appendingPathComponent("work/Glint.app")   // never created: the second mv fails
+    try fm.createDirectory(at: installed, withIntermediateDirectories: true)
+    try fm.createDirectory(at: missing.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data("old".utf8).write(to: installed.appendingPathComponent("marker"))
+    let finished = Process()
+    finished.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+    try finished.run(); finished.waitUntilExit()
+    let script = UpdateInstaller.swapScript(pid: finished.processIdentifier, newApp: missing,
+                                            destination: installed, relaunch: false)
+    do { try UpdateInstaller.run("/bin/sh", ["-c", script]); T.expect(false, "the script should fail") } catch {}
+    T.equal(try String(contentsOf: installed.appendingPathComponent("marker"), encoding: .utf8), "old")
+    let real = UpdateInstaller.swapScript(pid: 1, newApp: missing, destination: installed)
+    T.equal(real.components(separatedBy: "open '").count - 1, 3, "relaunches after success and after both failures:")
+    T.equal(real.components(separatedBy: "--after-update").count - 1, 1, "only the new copy hears it was updated:")
 }
 
 T.test("installer: the swap script replaces the app once the old process is gone") {

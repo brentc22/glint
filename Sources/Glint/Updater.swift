@@ -11,9 +11,6 @@ final class Updater: ObservableObject {
 
     private let feed = URL(string: "https://api.github.com/repos/brentc22/glint/releases/latest")!
     private let appName = "Glint"
-    /// The identity scripts/make-signing-cert.sh creates. When it's in the keychain, an
-    /// update is re-signed with it, so the Screen Recording grant survives.
-    private let signingIdentity = "Glint Self-Signed"
     private let defaults = UserDefaults.standard
     private enum Key {
         static let automatic = "automaticallyChecksForUpdates"
@@ -101,14 +98,7 @@ final class Updater: ObservableObject {
         let alert = NSAlert()
         alert.icon = NSApp.applicationIconImage
         alert.messageText = "Glint \(version) is available"
-        var text = "You have \(currentVersion). Install it now? Glint restarts by itself afterwards."
-        if !UpdateInstaller.hasSigningIdentity(signingIdentity) {
-            // Release builds are ad-hoc signed: macOS ties the grant to the binary's hash,
-            // so a new version is a new identity and the old grant no longer applies.
-            text += "\n\nmacOS will probably ask for Screen Recording permission again. "
-                + "Glint opens its settings afterwards to walk you through it."
-        }
-        alert.informativeText = text
+        alert.informativeText = "You have \(currentVersion). Install it now? Glint restarts by itself afterwards."
         alert.accessoryView = notesView(release.body)
         alert.addButton(withTitle: "Install and Relaunch")
         alert.addButton(withTitle: "Later")
@@ -146,8 +136,12 @@ final class Updater: ObservableObject {
     private func install(_ release: Release, version: AppVersion) {
         let destination = Bundle.main.bundleURL
         let parentIsWritable = FileManager.default.isWritableFile(atPath: destination.deletingLastPathComponent().path)
-        // From `swift run`, or an /Applications we can't write to: hand over to the browser.
-        guard destination.pathExtension == "app", parentIsWritable, let zipURL = release.zipURL(appName: appName) else {
+        // The update must be signed by the same identity as this copy. From `swift run`, an
+        // ad-hoc build, or an /Applications we can't write to there is nothing to compare
+        // with or nowhere to install: hand over to the browser.
+        guard destination.pathExtension == "app", parentIsWritable,
+              UpdateInstaller.runningRequirement() != nil,
+              let zipURL = release.zipURL(appName: appName) else {
             NSWorkspace.shared.open(release.htmlURL)
             return
         }
@@ -163,11 +157,12 @@ final class Updater: ObservableObject {
                 try FileManager.default.moveItem(at: download, to: zip)
 
                 let bundleID = Bundle.main.bundleIdentifier ?? "com.brentc22.Glint"
-                let identity = signingIdentity
                 let newApp = try await Task.detached {
-                    let resign = UpdateInstaller.hasSigningIdentity(identity) ? identity : nil
+                    guard let requirement = UpdateInstaller.runningRequirement() else {
+                        throw UpdateError.invalidSignature("this copy of Glint isn't signed with a certificate")
+                    }
                     return try UpdateInstaller.prepare(zip: zip, in: workDir, bundleID: bundleID,
-                                                       version: version, resignWith: resign)
+                                                       version: version, requiredRequirement: requirement)
                 }.value
 
                 let script = UpdateInstaller.swapScript(pid: ProcessInfo.processInfo.processIdentifier,

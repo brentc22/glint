@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 /// A `major.minor.patch` version. Tags like `v0.4.0` parse too; missing parts count as 0.
 public struct AppVersion: Comparable, CustomStringConvertible, Sendable {
@@ -40,8 +41,17 @@ public struct Release: Decodable, Sendable {
     public var version: AppVersion? { AppVersion(tagName) }
 
     /// The app zip: `Glint.zip` (or `Glint-0.5.0.zip`).
+    /// Only https URLs on GitHub's own hosts qualify; anything else (a tampered feed, say)
+    /// yields nil and the caller sends the user to the release page instead.
     public func zipURL(appName: String) -> URL? {
-        assets.first { $0.name.hasPrefix(appName) && $0.name.hasSuffix(".zip") }?.browserDownloadURL
+        assets.first { $0.name.hasPrefix(appName) && $0.name.hasSuffix(".zip") && Self.isTrustedDownload($0.browserDownloadURL) }?
+            .browserDownloadURL
+    }
+
+    public static let trustedDownloadHosts: Set<String> = ["github.com", "objects.githubusercontent.com"]
+
+    public static func isTrustedDownload(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "https" && url.host.map { trustedDownloadHosts.contains($0.lowercased()) } == true
     }
 
     public static func decode(_ data: Data) throws -> Release {
@@ -86,22 +96,30 @@ public enum UpdateError: LocalizedError, Equatable {
 
 /// Unpacks and checks a downloaded update, and swaps it in once the app has quit.
 public enum UpdateInstaller {
-    /// Unzips `zip` into `workDir` and returns the app inside it, after checking it is
-    /// the same app (bundle id), the promised version, and intact (code signature).
+    /// Unzips `zip` into `workDir` and returns the app inside it, after checking that the
+    /// archive holds exactly one top-level entry, a real directory named `Glint.app`, that it
+    /// is the same app (bundle id) and the promised version, and that macOS itself accepts
+    /// its code signature against `requirement`.
     ///
-    /// `resignWith`: a code signing identity to sign the checked app with afterwards.
-    /// Release builds are ad-hoc signed, and macOS ties the Screen Recording grant to the
-    /// signature; re-signing with the identity the installed copy was built with (see
-    /// scripts/make-signing-cert.sh) keeps the grant across the update.
+    /// `requirement` is the running app's designated requirement (`runningRequirement()`).
+    /// For a build signed with the Glint Self-Signed certificate it pins the bundle id and
+    /// the certificate, so an update signed with anything else (including ad-hoc) is
+    /// refused, and one that passes keeps the Screen Recording grant, which macOS ties to
+    /// that same requirement. The decision is made by Security.framework on the code itself,
+    /// never by parsing tool output, which the downloaded app's file names could forge.
+    /// Apps never get re-signed: that would hide tampering.
     public static func prepare(zip: URL, in workDir: URL, bundleID: String, version: AppVersion,
-                               resignWith identity: String? = nil) throws -> URL {
+                               requiredRequirement requirement: SecRequirement) throws -> URL {
         let unpacked = workDir.appendingPathComponent("unpacked")
         try? FileManager.default.removeItem(at: unpacked)
         try FileManager.default.createDirectory(at: unpacked, withIntermediateDirectories: true)
         try run("/usr/bin/ditto", ["-x", "-k", zip.path, unpacked.path])
 
         let contents = try FileManager.default.contentsOfDirectory(at: unpacked, includingPropertiesForKeys: nil)
-        guard let app = contents.first(where: { $0.pathExtension == "app" }) else { throw UpdateError.noAppInArchive }
+        guard contents.count == 1, let app = contents.first, app.lastPathComponent == appBundleName,
+              (try? app.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]))
+                  .map({ $0.isDirectory == true && $0.isSymbolicLink != true }) == true
+        else { throw UpdateError.noAppInArchive }
 
         let info = NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist"))
         let foundID = info?["CFBundleIdentifier"] as? String
@@ -110,47 +128,74 @@ public enum UpdateInstaller {
         guard foundVersion.flatMap(AppVersion.init) == version else {
             throw UpdateError.wrongVersion(found: foundVersion, expected: version.description)
         }
-        do {
-            try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path])
-        } catch {
-            throw UpdateError.invalidSignature(error.localizedDescription)
+
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code else {
+            throw UpdateError.invalidSignature("couldn't read the code signature")
         }
-        // Only after the download checked out: re-signing would hide tampering.
-        if let identity {
-            try run("/usr/bin/codesign", ["--force", "--sign", identity, app.path])
+        let flags = SecCSFlags(rawValue: kSecCSStrictValidate | kSecCSCheckAllArchitectures | kSecCSCheckNestedCode)
+        let status = SecStaticCodeCheckValidity(code, flags, requirement)
+        switch status {
+        case errSecSuccess: return app
+        case errSecCSReqFailed: throw UpdateError.invalidSignature("signed by a different identity")
+        default: throw UpdateError.invalidSignature("code validation failed (\(status))")
         }
-        return app
     }
 
-    /// Whether the login keychain holds a code signing identity called `name`.
-    public static func hasSigningIdentity(_ name: String) -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-        process.arguments = ["find-identity", "-p", "codesigning"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return false }
-        let output = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return String(decoding: output, as: UTF8.self).contains("\"\(name)\"")
+    public static let appBundleName = "Glint.app"
+
+    /// The designated requirement of the running app, or nil when it isn't signed with a
+    /// certificate (ad-hoc builds, `swift run`): then there is no identity to compare an
+    /// update against and the caller should send the user to the download page.
+    public static func runningRequirement() -> SecRequirement? {
+        var code: SecCode?
+        var staticCode: SecStaticCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code,
+              SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode
+        else { return nil }
+        return certificateRequirement(of: staticCode)
     }
 
-    /// A shell script that waits for `pid` to exit, moves `newApp` over `destination`
-    /// (restoring the old copy if that fails) and relaunches it with `--after-update`, so the
-    /// new copy can tell it was just installed. Run it detached, then quit.
+    private static func certificateRequirement(of code: SecStaticCode) -> SecRequirement? {
+        var requirement: SecRequirement?
+        guard SecCodeCopyDesignatedRequirement(code, [], &requirement) == errSecSuccess, let requirement,
+              requirementText(requirement)?.contains("certificate") == true
+        else { return nil }
+        return requirement
+    }
+
+    /// For display and for tests only; never for a security decision about downloaded code.
+    public static func requirementText(_ requirement: SecRequirement) -> String? {
+        var text: CFString?
+        guard SecRequirementCopyString(requirement, [], &text) == errSecSuccess else { return nil }
+        return text as String?
+    }
+
+    public static func requirement(fromText text: String) -> SecRequirement? {
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess else { return nil }
+        return requirement
+    }
+
+    /// A shell script that waits for `pid` to exit and moves `newApp` over `destination`
+    /// (restoring the old copy if that fails), then launches whichever copy is in place: the
+    /// new one with `--after-update`, so it can tell it was just installed, or the old one
+    /// again after a failed swap, so the user is never left without Glint. Run it detached,
+    /// then quit.
     public static func swapScript(pid: Int32, newApp: URL, destination: URL, relaunch: Bool = true) -> String {
         let backup = newApp.deletingLastPathComponent().appendingPathComponent("previous.app")
+        let reopenOld = relaunch ? "open \(quote(destination.path))" : ":"
+        let openNew = relaunch ? "open \(quote(destination.path)) --args --after-update" : ":"
         return """
         while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done
         rm -rf \(quote(backup.path))
-        mv \(quote(destination.path)) \(quote(backup.path)) || exit 1
+        if ! mv \(quote(destination.path)) \(quote(backup.path)); then \(reopenOld); exit 1; fi
         if ! mv \(quote(newApp.path)) \(quote(destination.path)); then
-          mv \(quote(backup.path)) \(quote(destination.path)); exit 1
+          mv \(quote(backup.path)) \(quote(destination.path)); \(reopenOld); exit 1
         fi
         xattr -dr com.apple.quarantine \(quote(destination.path)) 2>/dev/null
         rm -rf \(quote(backup.path))
-        \(relaunch ? "open \(quote(destination.path)) --args --after-update" : "")
+        \(openNew)
         """
     }
 

@@ -101,9 +101,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// A release build is ad-hoc signed, and macOS ties the Screen Recording grant to the
-    /// old binary's signature. Right after an update that lost it, open the General tab,
-    /// whose banner links to System Settings. The swap script relaunches with `--after-update`.
+    /// Releases are signed with the Glint Self-Signed certificate, so an update keeps the
+    /// Screen Recording grant. Should it be lost anyway (the first update away from an older
+    /// ad-hoc build, say), open the General tab right after the update, whose banner links
+    /// to System Settings. The swap script relaunches with `--after-update`.
     private func showSettingsIfUpdateLostPermission() {
         guard CommandLine.arguments.contains("--after-update") else { return }
         Task {
