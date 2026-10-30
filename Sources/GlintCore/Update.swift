@@ -70,6 +70,25 @@ public enum UpdatePolicy {
         return userInitiated || skipped != latest.description
     }
 
+    public enum CheckOutcome: Equatable, Sendable {
+        /// User-initiated: the Install / Later / Skip alert.
+        case offer
+        /// Automatic: only the menu item and Settings show it. Never activates the app or
+        /// runs modal, so it can't steal focus from whatever the user is doing.
+        case surface
+        /// User-initiated, nothing newer: "You're up to date".
+        case upToDate
+        /// Automatic, nothing to show (none newer, or the newer one was skipped).
+        case quiet
+    }
+
+    public static func outcome(_ release: Release, current: AppVersion,
+                               skipped: String?, userInitiated: Bool) -> CheckOutcome {
+        let offers = shouldOffer(release, current: current, skipped: skipped, userInitiated: userInitiated)
+        if userInitiated { return offers ? .offer : .upToDate }
+        return offers ? .surface : .quiet
+    }
+
     public static func isCheckDue(lastCheck: Date?, now: Date = Date()) -> Bool {
         guard let lastCheck else { return true }
         return now.timeIntervalSince(lastCheck) >= checkInterval

@@ -180,20 +180,24 @@ Settings → Privacy & Security → Screen & System Audio Recording, then reopen
 Glint checks GitHub Releases once a day for a newer version. When there is one, it shows
 the release notes with **Install and Relaunch** (download, check and swap the app, then
 relaunch), **Later**, and **Skip This Version** (stay quiet about it until you check
-yourself). A waiting update also shows at the top of the menu bar menu. Settings → General
+yourself). The daily check is silent: a waiting update only shows as **Update Available…** at the top of the menu bar menu and in Settings, never as a pop-up. Only **Check Now** shows an alert. Settings → General
 → Updates turns the daily check off and has **Check Now**.
 
 Before swapping anything in, Glint checks that the download is `com.brentc22.Glint`, is the
 version the release promised, comes as a single `Glint.app` in the archive, and that macOS
 accepts its code signature against **the designated requirement of the copy you are
 running** (same bundle id, same certificate). An update signed by anyone else, or ad-hoc,
-is refused. Downloads only come from `github.com` over https. If any check fails, or
+is refused. The download has to be https from a GitHub host, but that is not what makes it
+safe: what is actually enforced is that the update is signed by the same certificate as the
+copy you're running, and an update that isn't is refused. If any check fails, or
 `/Applications` isn't writable, Glint offers the download page instead.
 
 Releases are signed with a self-signed certificate (`Glint Self-Signed`), not ad-hoc, so
 Glint keeps the same identity across versions and the **Screen Recording permission
-survives updates**. Coming from 0.4.0 or earlier (ad-hoc signed), macOS asks for the
-permission once more after you install the first signed release; after that it sticks.
+survives updates**. 0.4.0 has no built-in updater, so the first certificate-signed
+release has to be installed by hand, with `brew upgrade --cask glint` or a download from the
+releases page, and macOS asks for Screen Recording once more. From then on, updates keep the
+permission.
 An ad-hoc build of your own has no certificate to compare an update with, so it opens the
 release page instead of installing.
 
@@ -257,27 +261,54 @@ another identity.
 ### Releasing
 
 Pushing a tag like `v0.5.0` runs `.github/workflows/release.yml`: it checks that the tag
-matches `CFBundleShortVersionString` in `Resources/Info.plist`, imports the signing identity
-into a temporary keychain, runs the tests, builds and signs the universal app, checks that
+matches `CFBundleShortVersionString` in `Resources/Info.plist` and that the first section of
+`CHANGELOG.md` is this version's (not `## Unreleased`), runs the tests, imports the signing identity
+into a temporary keychain, builds and signs the universal app, checks that
 it is signed with the identity pinned in `Resources/designated-requirement.txt`, and
 publishes `Glint.zip` with the newest section of `CHANGELOG.md` as the notes. Without the
 identity the release fails; it never falls back to ad-hoc.
 
-The identity comes from two repository secrets:
+The identity comes from two secrets of a GitHub Environment named `release`, which should be
+limited to `v*` tags (Settings → Environments → release → Deployment branches and tags), so
+nothing but a tag push can read them:
 
-- `GLINT_SIGNING_P12`: the base64 of the exported `.p12`
-- `GLINT_SIGNING_PASSWORD`: its password (`glint` for a certificate made by the script)
+- `GLINT_SIGNING_P12`: the base64 of the exported `.p12`. **This is the secret.** Anyone who
+  has it can sign updates that installed copies accept.
+- `GLINT_SIGNING_PASSWORD`: the password the `.p12` was exported with. It only protects the
+  file in transit. The password `glint` that `scripts/make-signing-cert.sh` uses is published
+  in this repository, so it protects nothing. When you export from Keychain Access, **choose
+  your own password** and put that in `GLINT_SIGNING_PASSWORD`.
 
 `scripts/make-signing-cert.sh --export <dir>` writes `<dir>/glint-signing.p12` and prints
 its base64, but only on the run that **creates** the identity. If `Glint Self-Signed` is
 already in your keychain, the script prints the steps to export it by hand: Keychain Access
 → login → My Certificates, select **Glint Self-Signed** (the private key must be under it),
-File → Export Items…, choose `.p12`, and set the password. Then
+File → Export Items…, choose `.p12`, and set your own password. Then
 `base64 -i glint-signing.p12 | pbcopy` and paste it into `GLINT_SIGNING_P12`. Set the secrets
-with `gh secret set GLINT_SIGNING_P12 < base64.txt` and `gh secret set GLINT_SIGNING_PASSWORD`,
-or under Settings → Secrets and variables → Actions. Delete the `.p12` afterwards. The same
-certificate must sign every release, or installed copies will refuse the update, so keep a
-backup of it.
+with `gh secret set GLINT_SIGNING_P12 --env release < base64.txt` and
+`gh secret set GLINT_SIGNING_PASSWORD --env release`, or under Settings → Environments →
+release. Delete the `.p12` afterwards. The same certificate must sign every release, or
+installed copies will refuse the update, so keep a backup of it.
+
+**If the import fails.** A `.p12` exported from Keychain Access on a recent macOS can use
+encryption that `security import` on the runner can't read. Repack it with OpenSSL, as
+`scripts/make-signing-cert.sh` does:
+
+```
+openssl pkcs12 -in glint-signing.p12 -nodes -passin pass:YOUR_PASSWORD \
+  | openssl pkcs12 -export -out glint-signing-legacy.p12 -passout pass:YOUR_PASSWORD \
+      -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1
+```
+
+(With OpenSSL 3 you can also add `-legacy` to the first command if it can't read the file.)
+Use the base64 of the repacked file.
+
+**Test the secrets before the first tag.** Run the *Release* workflow by hand (Actions →
+Release → Run workflow, `dry_run` on, the default). It imports the identity, lists it with
+`security find-identity`, and deletes the keychain; nothing is built or released. Because
+the `release` environment is limited to tags, a manual run from a branch is rejected until
+you temporarily add that branch to the environment's allowed refs. A real release only
+ever comes from pushing a `v*` tag.
 
 ```
 Sources/

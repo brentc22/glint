@@ -3,6 +3,15 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Dry run: imports the signing identity, lists it, and deletes the keychain. Nothing is
+  # built or released and the tag checks are skipped. Use it to test the secrets before
+  # the first tag. A release only ever comes from a v* tag push.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only test the signing secrets (import the identity, list it, clean up)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -11,24 +20,53 @@ jobs:
   release:
     runs-on: macos-15
     timeout-minutes: 25
+    # The signing secrets live in this GitHub Environment, which is limited to v* tags, so
+    # only a tag push (or a dry run you allow for a branch) can read them.
+    environment: release
     steps:
+      - name: Refuse a manual run that is not a dry run
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
+        run: |
+          echo "::error::Releases only come from pushing a v* tag. Run this workflow with dry_run enabled to test the secrets."
+          exit 1
+
       - uses: actions/checkout@v4
+        with:
+          # Nothing after this needs to push; gh uses GH_TOKEN below.
+          persist-credentials: false
 
       # The runner context isn't available in job-level env, so set the path here.
-      - name: Choose the keychain path
+      - name: Set the keychain path
         run: echo "KEYCHAIN=$RUNNER_TEMP/glint-signing.keychain-db" >> "$GITHUB_ENV"
 
-      - name: Check the tag matches the app version
+      - name: Check the tag matches the app version and the changelog
+        if: github.event_name == 'push'
         run: |
+          version="${GITHUB_REF_NAME#v}"
           plist_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
-          if [ "${GITHUB_REF_NAME#v}" != "$plist_version" ]; then
+          if [ "$version" != "$plist_version" ]; then
             echo "::error::Tag $GITHUB_REF_NAME does not match CFBundleShortVersionString $plist_version"
             exit 1
           fi
+          # The release notes are the first "## " section of CHANGELOG.md, so it has to be
+          # this version's, not "## Unreleased".
+          first_heading="$(grep -m1 '^## ' CHANGELOG.md || true)"
+          case "$first_heading" in
+            "## $version" | "## $version "*) ;;
+            *)
+              echo "::error::The first section of CHANGELOG.md is \"${first_heading:-<none>}\", expected one starting with \"## $version\". Rename \"## Unreleased\" before tagging."
+              exit 1
+              ;;
+          esac
+
+      - name: Test
+        if: github.event_name == 'push'
+        run: swift run GlintTests
 
       # Releases are signed with the same "Glint Self-Signed" identity as local builds, so
       # an installed copy accepts the update and keeps its Screen Recording grant. The
-      # identity lives in two secrets: see "Releasing" in the README.
+      # identity lives in two secrets of the "release" environment: see "Releasing" in the README.
+      # This runs right before the build so nothing earlier (checkout, tests) has the key.
       - name: Import the signing identity
         env:
           GLINT_SIGNING_P12: ${{ secrets.GLINT_SIGNING_P12 }}
@@ -43,20 +81,22 @@ jobs:
           security create-keychain -p "$keychain_password" "$KEYCHAIN"
           security set-keychain-settings -lut 3600 "$KEYCHAIN"
           security unlock-keychain -p "$keychain_password" "$KEYCHAIN"
-          security import "$RUNNER_TEMP/glint-signing.p12" -k "$KEYCHAIN" -P "$GLINT_SIGNING_PASSWORD" -T /usr/bin/codesign
+          security import "$RUNNER_TEMP/glint-signing.p12" -k "$KEYCHAIN" -P "$GLINT_SIGNING_PASSWORD" -T /usr/bin/codesign \
+            || { echo "::error::security import failed: wrong password, or a .p12 this runner can't read. See 'If the import fails' in the README (repack with openssl -legacy)."; exit 1; }
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$KEYCHAIN"
           # Put it first in the search list, next to the login keychain.
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
           rm -f "$RUNNER_TEMP/glint-signing.p12"
-          security find-identity -p codesigning "$KEYCHAIN"
-
-      - name: Test
-        run: swift run GlintTests
+          security find-identity -p codesigning "$KEYCHAIN" | tee "$RUNNER_TEMP/identities.txt"
+          grep -q "Glint Self-Signed" "$RUNNER_TEMP/identities.txt" \
+            || { echo "::error::The .p12 imported, but it holds no \"Glint Self-Signed\" identity with a private key."; exit 1; }
 
       - name: Build universal app
+        if: github.event_name == 'push'
         run: make zip GLINT_SIGN_IDENTITY="Glint Self-Signed"
 
       - name: Check the signing identity
+        if: github.event_name == 'push'
         run: |
           codesign --verify --deep --strict Glint.app
           # The signer is pinned in the repo: a different certificate would make every
@@ -65,8 +105,10 @@ jobs:
             || { echo "::error::Glint.app is not signed with the pinned identity (Resources/designated-requirement.txt)"; exit 1; }
 
       - name: Publish release
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           gh release create "$GITHUB_REF_NAME" Glint.zip \
             --title "Glint ${GITHUB_REF_NAME#v}" \

@@ -8,8 +8,14 @@
   Updates turns the check off or checks right away.
 - Releases are signed with a self-signed certificate (`Glint Self-Signed`) instead of
   ad-hoc, so Glint keeps the same identity from one version to the next and the Screen
-  Recording permission survives updates. Coming from 0.4.0 or earlier, macOS asks for it
-  one last time.
+  Recording permission survives updates.
+- Upgrading from 0.4.0: 0.4.0 has no built-in updater, so the first certificate-signed
+  release has to be installed by hand, with `brew upgrade --cask glint` or a download from
+  the releases page. macOS asks for Screen Recording once more. From then on, updates keep
+  the permission.
+- The daily update check is silent: it never activates Glint or opens an alert. A waiting
+  update only shows as "Update Available…" in the menu and in Settings, and a skipped
+  version stays quiet. Check Now still shows the alert.
 - An update is only installed when macOS accepts its signature against the designated
   requirement of the copy you're running (same bundle id, same certificate), checked with
   Security.framework. The archive must hold exactly one `Glint.app`, the download must come

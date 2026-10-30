@@ -70,12 +70,17 @@ final class Updater: ObservableObject {
                 defaults.set(now, forKey: Key.lastCheck)
                 lastCheck = now
                 let skipped = defaults.string(forKey: Key.skipped)
-                let newer = release.version.map { $0 > currentVersion } ?? false
-                available = newer ? release : nil
-                if UpdatePolicy.shouldOffer(release, current: currentVersion, skipped: skipped, userInitiated: userInitiated) {
+                switch UpdatePolicy.outcome(release, current: currentVersion, skipped: skipped, userInitiated: userInitiated) {
+                case .offer:
+                    available = release
                     offer(release)
-                } else if userInitiated {
+                case .surface:
+                    available = release   // menu item and Settings only; no alert, no activation
+                case .upToDate:
+                    available = nil
                     inform("You're up to date", "Glint \(currentVersion) is the latest version.")
+                case .quiet:
+                    available = nil
                 }
             } catch {
                 NSLog("Glint: update check failed: \(error)")
@@ -86,13 +91,14 @@ final class Updater: ObservableObject {
         }
     }
 
-    /// Opens the offer again from settings or the menu.
+    /// Opens the offer from settings or the menu (always a user action).
     func offerAvailable() {
         if let available { offer(available) }
     }
 
     // MARK: - Offer
 
+    /// Modal, and it activates Glint: only ever reached from a user action.
     private func offer(_ release: Release) {
         guard let version = release.version else { return }
         let alert = NSAlert()

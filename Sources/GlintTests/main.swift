@@ -526,6 +526,18 @@ T.test("update policy: only newer, unskipped, final releases") {
              "an older skipped version doesn't hide a newer one")
 }
 
+T.test("update policy: only a check you asked for shows an alert") {
+    let current = AppVersion("0.4.0")!
+    let newer = try Release.decode(releaseJSON(tag: "v0.5.0"))
+    let same = try Release.decode(releaseJSON(tag: "v0.4.0"))
+    T.equal(UpdatePolicy.outcome(newer, current: current, skipped: nil, userInitiated: false), .surface)
+    T.equal(UpdatePolicy.outcome(newer, current: current, skipped: "0.5.0", userInitiated: false), .quiet)
+    T.equal(UpdatePolicy.outcome(same, current: current, skipped: nil, userInitiated: false), .quiet)
+    T.equal(UpdatePolicy.outcome(newer, current: current, skipped: nil, userInitiated: true), .offer)
+    T.equal(UpdatePolicy.outcome(newer, current: current, skipped: "0.5.0", userInitiated: true), .offer)
+    T.equal(UpdatePolicy.outcome(same, current: current, skipped: nil, userInitiated: true), .upToDate)
+}
+
 T.test("update policy: at most one check a day") {
     let now = Date()
     T.expect(UpdatePolicy.isCheckDue(lastCheck: nil, now: now), "never checked")
