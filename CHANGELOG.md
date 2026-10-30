@@ -6,8 +6,18 @@
   offers to install it: Install and Relaunch, Later, or Skip This Version. The download is
   checked (app, version, signature) before it replaces anything. Settings → General →
   Updates turns the check off or checks right away.
-- With the `Glint Self-Signed` identity in your keychain, updates are re-signed with it, so
-  Screen Recording permission survives them.
+- Releases are signed with a self-signed certificate (`Glint Self-Signed`) instead of
+  ad-hoc, so Glint keeps the same identity from one version to the next and the Screen
+  Recording permission survives updates. Coming from 0.4.0 or earlier, macOS asks for it
+  one last time.
+- An update is only installed when macOS accepts its signature against the designated
+  requirement of the copy you're running (same bundle id, same certificate), checked with
+  Security.framework. The archive must hold exactly one `Glint.app`, the download must come
+  from GitHub over https, and if the swap fails the old copy is put back and relaunched.
+  Copies without a certificate (ad-hoc builds) open the release page instead.
+- `scripts/make-signing-cert.sh --export <dir>` writes the `.p12` for the release secrets.
+- Install notes: on macOS 15 and later, use Privacy & Security → **Open Anyway** for the
+  first launch; right-click → Open no longer gets past Gatekeeper.
 
 ## 0.4.0 — 2026-09-29
 

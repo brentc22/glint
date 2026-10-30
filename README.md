@@ -161,11 +161,16 @@ brew install --cask brentc22/tap/glint
 Or download `Glint.zip` from the [latest release](../../releases/latest), unzip, and move
 `Glint.app` to `/Applications`. Requires macOS 14 Sonoma or later. Universal binary.
 
-Glint isn't notarized yet, so macOS blocks the first launch. Right-click → **Open**, or:
+Glint isn't notarized yet, so macOS blocks the first launch. On macOS 15 Sequoia and later,
+right-click → **Open** no longer gets past that: open System Settings → Privacy & Security
+and click **Open Anyway** next to the message about Glint (on macOS 14, right-click →
+**Open** still works). Or clear the quarantine flag, which works everywhere:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Glint.app
 ```
+
+This applies to a Homebrew install too.
 
 On first capture macOS asks for **Screen Recording** permission. Allow it in System
 Settings → Privacy & Security → Screen & System Audio Recording, then reopen Glint.
@@ -178,16 +183,19 @@ relaunch), **Later**, and **Skip This Version** (stay quiet about it until you c
 yourself). A waiting update also shows at the top of the menu bar menu. Settings → General
 → Updates turns the daily check off and has **Check Now**.
 
-Before swapping anything in, Glint checks that the download is `com.brentc22.Glint`, the
-version the release promised, and that its code signature is intact
-(`codesign --verify --deep --strict`). If any of that fails, or `/Applications` isn't
-writable, it offers the download page instead.
+Before swapping anything in, Glint checks that the download is `com.brentc22.Glint`, is the
+version the release promised, comes as a single `Glint.app` in the archive, and that macOS
+accepts its code signature against **the designated requirement of the copy you are
+running** (same bundle id, same certificate). An update signed by anyone else, or ad-hoc,
+is refused. Downloads only come from `github.com` over https. If any check fails, or
+`/Applications` isn't writable, Glint offers the download page instead.
 
-Release builds are ad-hoc signed, so macOS treats a new version as a new app and asks for
-Screen Recording again; right after such an update Glint opens its settings on the
-permission banner. If the `Glint Self-Signed` identity from
-`scripts/make-signing-cert.sh` is in your keychain, Glint re-signs the checked update with
-it, and the permission carries over.
+Releases are signed with a self-signed certificate (`Glint Self-Signed`), not ad-hoc, so
+Glint keeps the same identity across versions and the **Screen Recording permission
+survives updates**. Coming from 0.4.0 or earlier (ad-hoc signed), macOS asks for the
+permission once more after you install the first signed release; after that it sticks.
+An ad-hoc build of your own has no certificate to compare an update with, so it opens the
+release page instead of installing.
 
 ### Build from source
 
@@ -220,7 +228,7 @@ make run                       # build, install to /Applications, launch
 ## Development
 
 ```sh
-make test                                         # 54 unit tests: matcher, renderer, stitcher, undo, OCR, GIF, SigV4, updater…
+make test                                         # 58 unit tests: matcher, renderer, stitcher, undo, OCR, GIF, SigV4, updater…
 make bundle                                       # Glint.app in the repo root
 Glint.app/Contents/MacOS/Glint --self-test        # every capture path for real, see below
 open Glint.app --args --edit docs/demo-input.png  # editor on the demo image, no permission needed
@@ -241,6 +249,35 @@ finds exactly its six secrets and leaves the rest alone.
 
 Other launch arguments: `--quick-access <image>`, `--settings <tab>`, `--history`, `--trim <video>` and
 `--select-demo <image>` (the selection overlay over an image instead of your screen).
+
+`make bundle` signs with `Glint Self-Signed` when it's in your keychain
+(`scripts/make-signing-cert.sh`), ad-hoc otherwise. `GLINT_SIGN_IDENTITY=<name>` picks
+another identity.
+
+### Releasing
+
+Pushing a tag like `v0.5.0` runs `.github/workflows/release.yml`: it checks that the tag
+matches `CFBundleShortVersionString` in `Resources/Info.plist`, imports the signing identity
+into a temporary keychain, runs the tests, builds and signs the universal app, checks that
+it is signed with the identity pinned in `Resources/designated-requirement.txt`, and
+publishes `Glint.zip` with the newest section of `CHANGELOG.md` as the notes. Without the
+identity the release fails; it never falls back to ad-hoc.
+
+The identity comes from two repository secrets:
+
+- `GLINT_SIGNING_P12`: the base64 of the exported `.p12`
+- `GLINT_SIGNING_PASSWORD`: its password (`glint` for a certificate made by the script)
+
+`scripts/make-signing-cert.sh --export <dir>` writes `<dir>/glint-signing.p12` and prints
+its base64, but only on the run that **creates** the identity. If `Glint Self-Signed` is
+already in your keychain, the script prints the steps to export it by hand: Keychain Access
+→ login → My Certificates, select **Glint Self-Signed** (the private key must be under it),
+File → Export Items…, choose `.p12`, and set the password. Then
+`base64 -i glint-signing.p12 | pbcopy` and paste it into `GLINT_SIGNING_P12`. Set the secrets
+with `gh secret set GLINT_SIGNING_P12 < base64.txt` and `gh secret set GLINT_SIGNING_PASSWORD`,
+or under Settings → Secrets and variables → Actions. Delete the `.p12` afterwards. The same
+certificate must sign every release, or installed copies will refuse the update, so keep a
+backup of it.
 
 ```
 Sources/
