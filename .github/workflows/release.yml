@@ -11,10 +11,12 @@ jobs:
   release:
     runs-on: macos-15
     timeout-minutes: 25
-    env:
-      KEYCHAIN: ${{ runner.temp }}/glint-signing.keychain-db
     steps:
       - uses: actions/checkout@v4
+
+      # The runner context isn't available in job-level env, so set the path here.
+      - name: Choose the keychain path
+        run: echo "KEYCHAIN=$RUNNER_TEMP/glint-signing.keychain-db" >> "$GITHUB_ENV"
 
       - name: Check the tag matches the app version
         run: |
